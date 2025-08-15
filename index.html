@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Supervivencia 2D — Pixel (v3x)</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:,">
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <canvas id="minimap" width="200" height="140"></canvas>
+
+  <div id="hud">
+    <div class="bar hunger"><span></span></div>
+    <div class="bar warmth"><span></span></div>
+    <div class="bar energy"><span></span></div>
+    <div class="bar oxygen"><span></span></div>
+    <div id="invHUD">Madera: 0 · Piedra: 0 · Carne: 0 · Pescado: 0 · Día: 1 · Hora: 12:00</div>
+    <div id="hint">WASD moverse · Shift sprint · C fogata · I inventario · B construir · M misiones · E puerta · Click atacar/colocar · S/L guardar/cargar</div>
+  </div>
+
+  <div id="toast">v3x: estable como v3, con todas las features nuevas.</div>
+
+  <div id="inventory" class="hidden">
+    <div class="inv-card">
+      <h3>Inventario & Crafteo</h3>
+      <div class="inv-grid">
+        <div><b>Madera:</b> <span id="woodCount">0</span></div>
+        <div><b>Piedra:</b> <span id="stoneCount">0</span></div>
+        <div><b>Carne cruda:</b> <span id="rawMeat">0</span></div>
+        <div><b>Pescado crudo:</b> <span id="rawFish">0</span></div>
+        <div><b>Carne cocida:</b> <span id="cookedMeat">0</span></div>
+        <div><b>Pescado cocido:</b> <span id="cookedFish">0</span></div>
+        <div><b>Lanza:</b> <span id="spearOwned">no</span></div>
+        <div><b>Balsa:</b> <span id="raftOwned">no</span></div>
+      </div>
+      <h4>Armas</h4>
+      <div class="recipes">
+        <button id="btnCraftSpear">Craftear Lanza (2 madera + 1 piedra)</button>
+        <button id="btnEquipSpear">Equipar/Quitar Lanza</button>
+      </div>
+      <h4>Movilidad Acuática</h4>
+      <div class="recipes">
+        <button id="btnCraftRaft">Craftear Balsa (6 madera)</button>
+        <button id="btnEquipRaft">Equipar/Quitar Balsa</button>
+      
+      <h4>Arco y Flechas</h4>
+      <div class="recipes">
+        <button id="btnCraftBow">Craftear Arco (3 madera)</button>
+        <button id="btnCraftArrows">Craftear 5 Flechas (1 madera + 1 piedra)</button>
+        <button id="btnEquipBow">Equipar/Quitar Arco</button>
+      </div>
+      <h4>Embarcación</h4>
+      <div class="recipes">
+        <button id="btnCraftBoat">Craftear Barco (10 madera + 2 piedra)</button>
+        <button id="btnEquipBoat">Equipar/Quitar Barco</button>
+      </div>
+      <h4>Cocina (cerca de fogata)</h4>
+      <div class="recipes">
+        <button id="btnCookMeat">Cocinar Carne (1 cruda → 1 cocida)</button>
+        <button id="btnCookFish">Cocinar Pescado (1 crudo → 1 cocido)</button>
+        <button id="btnEatMeat">Comer Carne Cocida (+35 hambre)</button>
+        <button id="btnEatFish">Comer Pescado Cocido (+25 hambre, +5 energía)</button>
+      </div>
+      <h4>Guardado</h4>
+      <div class="recipes">
+        <button id="btnExport">Exportar guardado (.json)</button>
+        <label class="import">Importar guardado<input id="fileImport" type="file" accept=".json"></label>
+      </div>
+      <div class="tips">Cerrar con <b>I</b> · <b>Esc</b> cierra paneles</div>
+    </div>
+  </div>
+
+  <div id="buildPanel" class="hidden">
+    <div class="inv-card">
+      <h3>Construcción</h3>
+      <div class="recipes">
+        <button data-build="wall">Pared (2 madera)</button>
+        <button data-build="floor">Piso (1 madera)</button>
+        <button data-build="roof">Techo (1 madera + 1 piedra)</button>
+        <button data-build="door">Puerta (2 madera)</button>
+        <button data-build="trap">Trampa (2 madera + 1 piedra)</button>
+        <button id="btnExitBuild">Salir de Construcción (B)</button>
+      </div>
+      <div class="tips">Click coloca, rueda gira, B/ESC cierra</div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+
+  <div id="missions" class="hidden">
+    <div class="inv-card">
+      <h3>Misiones</h3>
+      <ul id="missionsList" style="margin:0; padding-left:18px;"></ul>
+      <div class="tips">Abrir/cerrar con <b>M</b> o <b>Esc</b></div>
+    </div>
+  </div>
+
+
+  <div id="mobileControls" class="mobile">
+    <div id="joy"><div class="stick"></div></div>
+    <div id="btns">
+      <button id="btnA">Atk/Use</button>
+      <button id="btnRun">Run</button>
+      <button id="btnInv">Inv</button>
+      <button id="btnBuild">Build</button>
+      <button id="btnFire">Fogata</button>
+      <button id="btnDoor">Puerta</button>
+      <button id="btnMis">Mis.</button>
+      <button id="btnFS">Full</button>
+    </div>
+  </div>
+  <div id="rotateOverlay">Girá tu teléfono a horizontal</div>
+
+</body>
+</html>

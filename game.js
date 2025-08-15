@@ -19,7 +19,7 @@
   }
   addEventListener('resize', resize); resize();
 
-  // ---- Load assets (con fallback para que nunca se “cuelgue”) ----
+  // ---- Load assets (fallback para no colgar) ----
   function loadImage(src){
     return new Promise(res=>{
       const i=new Image();
@@ -74,6 +74,9 @@
 
   const trees=[], rocks=[], woods=[], campfires=[], crabs=[], deers=[], fishs=[], buildings=[];
   const projectiles=[];
+  const npcs = [
+    { x: 360, y: 320, name:'Amigo', talked:false, quest:{need:5, done:false, rewarded:false} }
+  ];
 
   for (let i=0;i<120;i++){ const t={x:80+rng()*(WORLD.w-160), y:80+rng()*(WORLD.h-160)}; if (t.x>water.x-40 && t.x<water.x+water.w+40 && t.y>water.y-40 && t.y<water.y+water.h+40){ i--; continue; } trees.push(t); }
   for (let i=0;i<40;i++){ const r={x:100+rng()*(WORLD.w-200), y:100+rng()*(WORLD.h-200), r:6}; if (r.x>water.x && r.x<water.x+water.w && r.y>water.y && r.y<water.y+water.h){ i--; continue; } rocks.push(r); }
@@ -101,7 +104,7 @@
   };
   onkeyup   = e => { keys.delete(e.key.toLowerCase()); };
 
-  // Mobile controls
+  // ---- Mobile controls ----
   const joy = document.getElementById('joy'); const stick = joy.querySelector('.stick');
   const btnA = document.getElementById('btnA'); const btnRun = document.getElementById('btnRun');
   const btnInv = document.getElementById('btnInv'); const btnBuild = document.getElementById('btnBuild');
@@ -116,7 +119,7 @@
   joy.addEventListener('pointerup', (e)=>{ if(e.pointerId===joyState.id) joyUp(); }, {passive:false}); joy.addEventListener('pointercancel', ()=>joyUp(), {passive:true});
 
   function btnPress(el, down, up){ el.addEventListener('pointerdown', e=>{ down(); e.preventDefault(); }, {passive:false}); if (up) el.addEventListener('pointerup', e=>{ up(); e.preventDefault(); }, {passive:false}); el.addEventListener('pointerleave', ()=>{ up&&up(); }, {passive:true}); }
-  btnPress(btnA, ()=>{ if (build.mode) tryBuild(); else { if (!shootArrow()) tryAttack(); } });
+  btnPress(btnA, ()=>{ if (build.mode) { tryBuild(); } else if (!interactNPC()) { if (!shootArrow()) tryAttack(); } });
   btnPress(btnRun, ()=>{ runTouch=true; }, ()=>{ runTouch=false; });
   btnPress(btnInv, ()=>{ toggleInventory(); });
   btnPress(btnBuild, ()=>{ toggleBuild(); });
@@ -126,37 +129,80 @@
   btnFS.addEventListener('click', async ()=>{ try{ await document.body.requestFullscreen(); }catch{} });
 
   // ---- Panels ----
-  function closePanels(){ document.getElementById('inventory').classList.add('hidden'); document.getElementById('buildPanel').classList.add('hidden'); const m=document.getElementById('missions'); if (m) m.classList.add('hidden'); }
-  const invDiv = document.getElementById('inventory'); const buildDiv = document.getElementById('buildPanel');
+  function closePanels(){
+    document.getElementById('inventory').classList.add('hidden');
+    document.getElementById('buildPanel').classList.add('hidden');
+    const m=document.getElementById('missions'); if (m) m.classList.add('hidden');
+    hideDialog();
+  }
+  const invDiv = document.getElementById('inventory');
+  const buildDiv = document.getElementById('buildPanel');
   function toggleInventory(){ invDiv.classList.toggle('hidden'); updateInvUI(); }
   function toggleBuild(){ buildDiv.classList.toggle('hidden'); build.mode = !build.mode; }
-  function updateInvUI(){
-    document.getElementById('woodCount').textContent=player.wood;
-    document.getElementById('stoneCount').textContent=player.stone;
-    document.getElementById('rawMeat').textContent=player.rawMeat;
-    document.getElementById('rawFish').textContent=player.rawFish;
-    document.getElementById('cookedMeat').textContent=player.cookedMeat;
-    document.getElementById('cookedFish').textContent=player.cookedFish;
-    document.getElementById('spearOwned').textContent=player.spearOwned?(player.spearEquipped?'equipada':'sí'):'no';
+  // cerrar tocando fuera
+  invDiv.addEventListener('click', (e)=>{ if(e.target===invDiv) invDiv.classList.add('hidden'); });
+  buildDiv.addEventListener('click', (e)=>{ if(e.target===buildDiv) buildDiv.classList.add('hidden'); });
+  const btnExitBuild = document.getElementById('btnExitBuild');
+  if (btnExitBuild) btnExitBuild.onclick = ()=> buildDiv.classList.add('hidden');
+
+  // ---- Diálogo centrado ----
+  const dialog = document.getElementById('dialog');
+  const dialogText = document.getElementById('dialogText');
+  const dialogClose = document.getElementById('dialogClose');
+  function showDialog(text){
+    dialogText.innerHTML = Array.isArray(text) ? text.map(t=>`<p>${t}</p>`).join('') : `<p>${text}</p>`;
+    dialog.classList.add('show'); dialog.classList.remove('hidden');
   }
-  // botones inventario
-  document.getElementById('btnEquipSpear').onclick = ()=>{ if (!player.spearOwned) return toast('Primero crafteá la lanza.'); player.spearEquipped=!player.spearEquipped; if (player.spearEquipped) player.bowEquipped=false; updateInvUI(); };
-  document.getElementById('btnCraftSpear').onclick = ()=>{ if (player.wood>=2 && player.stone>=1){ player.wood-=2; player.stone-=1; player.spearOwned=true; ASSETS.s_craft.play().catch(()=>{}); toast('Lanza creada'); updateInvUI(); updateMissions(); } else toast('2 madera + 1 piedra'); };
+  function hideDialog(){ dialog.classList.add('hidden'); dialog.classList.remove('show'); }
+  dialogClose.addEventListener('click', hideDialog);
+  dialog.addEventListener('click', (e)=>{ if(e.target===dialog) hideDialog(); });
+  addEventListener('keydown', (e)=>{ if (e.key==='Escape') hideDialog(); });
 
-  // arco/flechas
+  // ---- Inventory UI ----
+  function updateInvUI(){
+    const $ = (id)=>document.getElementById(id);
+    $('woodCount').textContent=player.wood;
+    $('stoneCount').textContent=player.stone;
+    $('rawMeat').textContent=player.rawMeat;
+    $('rawFish').textContent=player.rawFish;
+    $('cookedMeat').textContent=player.cookedMeat;
+    $('cookedFish').textContent=player.cookedFish;
+    $('spearOwned').textContent=player.spearOwned?(player.spearEquipped?'equipada':'sí'):'no';
+    const ac=$('arrowCount'); if (ac) ac.textContent = player.arrows;
+    // toggles visuales
+    const t=(id,cond)=>{ const el=$(id); if (el) el.classList.toggle('active', !!cond); };
+    t('equipSpearTile', player.spearEquipped);
+    t('equipBowTile',   player.bowEquipped);
+    t('equipBoatTile',  player.boatEquipped);
+  }
+
+  // Botones inventario (craft/equip)
+  document.getElementById('btnEquipSpear').onclick = ()=>{ if (!player.spearOwned) return toast('Primero crafteá la lanza.'); player.spearEquipped=!player.spearEquipped; if (player.spearEquipped) player.bowEquipped=false; updateInvUI(); saveLS(); };
+  document.getElementById('btnCraftSpear').onclick = ()=>{ if (player.wood>=2 && player.stone>=1){ player.wood-=2; player.stone-=1; player.spearOwned=true; ASSETS.s_craft.play().catch(()=>{}); toast('Lanza creada'); updateInvUI(); updateMissions(); saveLS(); } else toast('2 madera + 1 piedra'); };
   const btnCraftBow=document.getElementById('btnCraftBow'), btnCraftArrows=document.getElementById('btnCraftArrows'), btnEquipBow=document.getElementById('btnEquipBow');
-  btnCraftBow.onclick = ()=>{ if (player.wood>=3){ player.wood-=3; player.bowOwned=true; ASSETS.s_craft.play().catch(()=>{}); toast('Arco creado'); updateInvUI(); updateMissions(); } else toast('3 madera'); };
-  btnCraftArrows.onclick = ()=>{ if (player.wood>=1 && player.stone>=1){ player.wood-=1; player.stone-=1; player.arrows+=5; ASSETS.s_craft.play().catch(()=>{}); toast('Flechas +5'); updateInvUI(); } else toast('1 madera + 1 piedra'); };
-  btnEquipBow.onclick = ()=>{ if (!player.bowOwned) return toast('Primero crafteá el arco.'); player.bowEquipped=!player.bowEquipped; if (player.bowEquipped) player.spearEquipped=false; updateInvUI(); };
-
-  // barco
+  btnCraftBow.onclick = ()=>{ if (player.wood>=3){ player.wood-=3; player.bowOwned=true; ASSETS.s_craft.play().catch(()=>{}); toast('Arco creado'); updateInvUI(); updateMissions(); saveLS(); } else toast('3 madera'); };
+  btnCraftArrows.onclick = ()=>{ if (player.wood>=1 && player.stone>=1){ player.wood-=1; player.stone-=1; player.arrows+=5; ASSETS.s_craft.play().catch(()=>{}); toast('Flechas +5'); updateInvUI(); saveLS(); } else toast('1 madera + 1 piedra'); };
+  btnEquipBow.onclick = ()=>{ if (!player.bowOwned) return toast('Primero crafteá el arco.'); player.bowEquipped=!player.bowEquipped; if (player.bowEquipped) player.spearEquipped=false; updateInvUI(); saveLS(); };
   const btnCraftBoat=document.getElementById('btnCraftBoat'), btnEquipBoat=document.getElementById('btnEquipBoat');
-  btnCraftBoat.onclick = ()=>{ if (player.wood>=10 && player.stone>=2){ player.wood-=10; player.stone-=2; player.boatOwned=true; ASSETS.s_craft.play().catch(()=>{}); toast('Barco creado'); updateMissions(); } else toast('10 madera + 2 piedra'); };
-  btnEquipBoat.onclick = ()=>{ if (!player.boatOwned) return toast('Primero crafteá el barco.'); player.boatEquipped = !player.boatEquipped; toast(player.boatEquipped?'Barco equipado':'Barco guardado'); };
+  btnCraftBoat.onclick = ()=>{ if (player.wood>=10 && player.stone>=2){ player.wood-=10; player.stone-=2; player.boatOwned=true; ASSETS.s_craft.play().catch(()=>{}); toast('Barco creado'); updateMissions(); updateInvUI(); saveLS(); } else toast('10 madera + 2 piedra'); };
+  btnEquipBoat.onclick = ()=>{ if (!player.boatOwned) return toast('Primero crafteá el barco.'); player.boatEquipped = !player.boatEquipped; toast(player.boatEquipped?'Barco equipado':'Barco guardado'); updateInvUI(); saveLS(); };
 
-  // Export/Import
+  // Equipables táctiles (tiles)
+  const eqS=document.getElementById('equipSpearTile'), eqB=document.getElementById('equipBowTile'), eqBoat=document.getElementById('equipBoatTile');
+  if (eqS) eqS.onclick = ()=>{ if (!player.spearOwned) return toast('No tenés lanza.'); player.spearEquipped=!player.spearEquipped; if (player.spearEquipped) player.bowEquipped=false; updateInvUI(); saveLS(); };
+  if (eqB) eqB.onclick = ()=>{ if (!player.bowOwned) return toast('No tenés arco.'); player.bowEquipped=!player.bowEquipped; if (player.bowEquipped) player.spearEquipped=false; updateInvUI(); saveLS(); };
+  if (eqBoat) eqBoat.onclick = ()=>{ if (!player.boatOwned) return toast('No tenés barco.'); player.boatEquipped=!player.boatEquipped; updateInvUI(); saveLS(); };
+
+  // Cocina / Consumibles
+  document.getElementById('btnCookMeat').onclick = ()=> cook('meat');
+  document.getElementById('btnCookFish').onclick = ()=> cook('fish');
+  const eatMeat=document.getElementById('btnEatMeat'), eatFish=document.getElementById('btnEatFish');
+  eatMeat.onclick = ()=>{ if (player.cookedMeat>0){ player.cookedMeat--; player.hunger=Math.min(100, player.hunger+25); player.energy=Math.min(100, player.energy+10); toast('¡Ñam! Carne.'); updateInvUI(); saveLS(); } else toast('No tenés carne cocida'); };
+  eatFish.onclick = ()=>{ if (player.cookedFish>0){ player.cookedFish--; player.hunger=Math.min(100, player.hunger+18); player.energy=Math.min(100, player.energy+6); toast('¡Ñam! Pescado.'); updateInvUI(); saveLS(); } else toast('No tenés pescado cocido'); };
+
+  // ---- Export/Import ----
   document.getElementById('btnExport').onclick = ()=>{ const data = collectSaveData(); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'})); a.download='survival2d_mobile_save.json'; a.click(); URL.revokeObjectURL(a.href); };
-  document.getElementById('fileImport').addEventListener('change', (e)=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ try{ applySaveData(JSON.parse(rd.result)); toast('Guardado importado.'); updateInvUI(); }catch{ toast('Archivo inválido'); } }; rd.readAsText(f); });
+  document.getElementById('fileImport').addEventListener('change', (e)=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ try{ applySaveData(JSON.parse(rd.result)); toast('Guardado importado.'); updateInvUI(); saveLS(); }catch{ toast('Archivo inválido'); } }; rd.readAsText(f); });
 
   // ---- Build system ----
   const build = { mode:false, current:'wall', rot:0, grid:16 };
@@ -164,17 +210,31 @@
   addEventListener('wheel', e => { if (build.mode){ build.rot += Math.sign(e.deltaY); } });
 
   // ---- Save/Load ----
-  function collectSaveData(){ return { player, campfires, rocks, woods, crabs, deers, fishs, buildings, timeOfDay, day }; }
-  function applySaveData(data){ Object.assign(player, data.player||{}); campfires.length=0; data.campfires?.forEach(o=>campfires.push(o)); rocks.length=0; data.rocks?.forEach(o=>rocks.push(o)); woods.length=0; data.woods?.forEach(o=>woods.push(o)); crabs.length=0; data.crabs?.forEach(o=>crabs.push(o)); deers.length=0; data.deers?.forEach(o=>deers.push(o)); fishs.length=0; data.fishs?.forEach(o=>fishs.push(o)); buildings.length=0; data.buildings?.forEach(o=>buildings.push(o)); timeOfDay=data.timeOfDay||12; day=data.day||1; }
-
-  function saveLS(){ localStorage.setItem('surv2d_mobile', JSON.stringify(collectSaveData())); toast('Guardado.'); }
-  function loadLS(){ const s=localStorage.getItem('surv2d_mobile'); if(!s) return toast('No hay guardado.'); applySaveData(JSON.parse(s)); toast('Cargado.'); updateInvUI(); }
+  function collectSaveData(){ 
+    return { player, campfires, rocks, woods, crabs, deers, fishs, buildings, timeOfDay, day, npcs, missions };
+  }
+  function applySaveData(data){ 
+    Object.assign(player, data.player||{});
+    campfires.length=0; data.campfires?.forEach(o=>campfires.push(o));
+    rocks.length=0; data.rocks?.forEach(o=>rocks.push(o));
+    woods.length=0; data.woods?.forEach(o=>woods.push(o));
+    crabs.length=0; data.crabs?.forEach(o=>crabs.push(o));
+    deers.length=0; data.deers?.forEach(o=>deers.push(o));
+    fishs.length=0; data.fishs?.forEach(o=>fishs.push(o));
+    buildings.length=0; data.buildings?.forEach(o=>buildings.push(o));
+    if (data.npcs){ npcs.length=0; data.npcs.forEach(n=>npcs.push(n)); }
+    if (data.missions){ for (const m of data.missions){ const mm = missions.find(x=>x.id===m.id); if (mm) mm.done = !!m.done; } }
+    timeOfDay = data.timeOfDay??12; day = data.day??1;
+    updateInvUI();
+  }
+  function saveLS(){ try{ localStorage.setItem('surv2d_mobile', JSON.stringify(collectSaveData())); }catch{} }
+  function loadLS(){ const s=localStorage.getItem('surv2d_mobile'); if(!s) return false; try{ applySaveData(JSON.parse(s)); updateInvUI(); return true; }catch{ return false; } }
 
   // ---- HUD & toast ----
   const invHUD = document.getElementById('invHUD'); let toastTimer=0;
   function toast(msg){ let t=document.getElementById('toast'); if (!t){ t=document.createElement('div'); t.id='toast'; document.body.appendChild(t);} t.textContent=msg; toastTimer=2.2; }
 
-  // ---- Misiones (simple) ----
+  // ---- Misiones ----
   const missions = [
     {id:'campfire', text:'Hacer una fogata', done:false},
     {id:'spear', text:'Craftear una lanza', done:false},
@@ -183,11 +243,11 @@
     {id:'day3', text:'Sobrevivir hasta Día 3', done:false},
   ];
   function updateMissions(){
-    missions.find(m=>m.id==='campfire').done = missions.find(m=>m.id==='campfire').done || (campfires.length>0);
-    missions.find(m=>m.id==='spear').done    = missions.find(m=>m.id==='spear').done    || player.spearOwned;
-    missions.find(m=>m.id==='boat').done     = missions.find(m=>m.id==='boat').done     || player.boatOwned;
-    missions.find(m=>m.id==='door').done     = missions.find(m=>m.id==='door').done     || buildings.some(b=>b.type==='door');
-    missions.find(m=>m.id==='day3').done     = missions.find(m=>m.id==='day3').done     || (day>=3);
+    missions.find(m=>m.id==='campfire').done ||= (campfires.length>0);
+    missions.find(m=>m.id==='spear').done    ||= player.spearOwned;
+    missions.find(m=>m.id==='boat').done     ||= player.boatOwned;
+    missions.find(m=>m.id==='door').done     ||= buildings.some(b=>b.type==='door');
+    missions.find(m=>m.id==='day3').done     ||= (day>=3);
     const root = document.getElementById('missions');
     if (root && !root.classList.contains('hidden')) renderMissions();
   }
@@ -200,26 +260,78 @@
     if (!root){
       root = document.createElement('div');
       root.id='missions';
-      root.className=''; // visible
-      root.style.position='fixed'; root.style.inset='0'; root.style.zIndex='6'; root.style.display='flex'; root.style.alignItems='center'; root.style.justifyContent='center';
+      root.style.position='fixed'; root.style.inset='0'; root.style.zIndex='6';
+      root.style.display='flex'; root.style.alignItems='center'; root.style.justifyContent='center';
       root.innerHTML = `
-        <div class="inv-card">
-          <h3>Misiones</h3>
-          <ul class="mis-list" style="margin:0 0 12px 18px; padding:0;"></ul>
+        <div class="inv-card" style="max-width:560px;">
+          <h3 style="text-align:center">Misiones</h3>
+          <ul class="mis-list" style="margin:0 0 12px 18px; padding:0; list-style:none;"></ul>
           <div class="recipes"><button id="btnCloseMis">Cerrar</button></div>
         </div>`;
       document.body.appendChild(root);
+      root.addEventListener('click', (e)=>{ if (e.target===root) root.classList.add('hidden'); });
       root.querySelector('#btnCloseMis').onclick = ()=> root.classList.add('hidden');
+      addEventListener('keydown', (e)=>{ if (e.key==='Escape') root.classList.add('hidden'); });
     } else {
       root.classList.toggle('hidden');
     }
     renderMissions();
   }
 
+  // ===== CLIMA =====
+  const weather = { state: 'clear', rain: 0, wind: 0, t: 0, nextChange: 120 + Math.random()*120 };
+  function setWeather(state){
+    weather.state = state;
+    if (state === 'clear'){ weather.rain = 0; weather.wind = 0; }
+    if (state === 'rain'){  weather.rain = 0.8; weather.wind = 0.2; }
+    if (state === 'wind'){  weather.rain = 0.0; weather.wind = 0.7; }
+  }
+  function updateWeather(dt){
+    weather.t += dt;
+    if (weather.t >= weather.nextChange){
+      weather.t = 0;
+      weather.nextChange = 120 + Math.random()*180;
+      const r = Math.random();
+      if (r < 0.55) setWeather('clear');
+      else if (r < 0.8) setWeather('rain');
+      else setWeather('wind');
+    }
+  }
+  let rainPhase = 0;
+  function drawRain(){
+    if (weather.state !== 'rain') return;
+    rainPhase += 0.02;
+    ctx.save();
+    ctx.globalAlpha = 0.35 * weather.rain;
+    const step = 8, len = 14;
+    for (let y=-len; y<H+len; y+=step){
+      for (let x=-len; x<W+len; x+=step){
+        const ox = ((x + y*1.3 + (rainPhase*140)) % step) - step/2;
+        ctx.beginPath();
+        ctx.moveTo((x+ox)*SCALE, (y)*SCALE);
+        ctx.lineTo((x+ox+3)*SCALE, (y+len)*SCALE);
+        ctx.strokeStyle = '#9ec9ff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
   // ---- Tiempo ----
-  let timeOfDay = 12, day=1; const DAY_SPEED=180; let last=performance.now(); let shoreAnim=0;
+  let timeOfDay = 12, day=1; const DAY_SPEED=900; let last=performance.now(); let shoreAnim=0;
+
+  // ---- Auto-guardado ----
+  const AUTO_SAVE_EVERY = 15; // seg
+  setInterval(saveLS, AUTO_SAVE_EVERY*1000);
+  addEventListener('visibilitychange', ()=>{ if (document.hidden) saveLS(); });
+  addEventListener('beforeunload', saveLS);
 
   function start(){
+    // Auto-load si hay partida
+    try{ const s = localStorage.getItem('surv2d_mobile'); if (s) applySaveData(JSON.parse(s)); }catch{}
+    updateInvUI();
+
     requestAnimationFrame(tick);
     ASSETS.s_water.volume=0.0; ASSETS.s_water.play().catch(()=>{});
     ASSETS.s_campfire.volume=0.0; ASSETS.s_campfire.play().catch(()=>{});
@@ -231,22 +343,22 @@
   function nearCampfire(){ for (const f of campfires){ if (Math.hypot(player.x-f.x, player.y-f.y) < f.r) return true; } return false; }
   function cook(which){
     if (!nearCampfire()) return toast('Debes estar cerca de una fogata.');
-    if (which==='meat' && player.rawMeat>=1){ player.rawMeat--; player.cookedMeat++; ASSETS.s_craft.play().catch(()=>{}); toast('Carne cocinada'); updateInvUI(); }
-    else if (which==='fish' && player.rawFish>=1){ player.rawFish--; player.cookedFish++; ASSETS.s_craft.play().catch(()=>{}); toast('Pescado cocinado'); updateInvUI(); }
+    if (which==='meat' && player.rawMeat>=1){ player.rawMeat--; player.cookedMeat++; ASSETS.s_craft.play().catch(()=>{}); toast('Carne cocinada'); updateInvUI(); saveLS(); }
+    else if (which==='fish' && player.rawFish>=1){ player.rawFish--; player.cookedFish++; ASSETS.s_craft.play().catch(()=>{}); toast('Pescado cocinado'); updateInvUI(); saveLS(); }
     else toast('Faltan ingredientes');
   }
   function tryAttack(){
     if (!player.spearEquipped) return false;
     const reach=18;
-    for (let i=deers.length-1;i>=0;i--){ const d=deers[i]; if (Math.hypot(player.x+player.facing.x*reach-d.x, player.y+player.facing.y*reach-d.y)<player.r+d.r){ d.hp--; ASSETS.s_hit.currentTime=0; ASSETS.s_hit.play().catch(()=>{}); if (d.hp<=0){ deers.splice(i,1); player.rawMeat++; toast('Carne cruda +1'); updateInvUI(); } return true; } }
-    for (let i=fishs.length-1;i>=0;i--){ const f=fishs[i]; if (Math.hypot(player.x+player.facing.x*reach-f.x, player.y+player.facing.y*reach-f.y)<player.r+f.r){ fishs.splice(i,1); player.rawFish++; ASSETS.s_hit.play().catch(()=>{}); toast('Pescado crudo +1'); updateInvUI(); return true; } }
+    for (let i=deers.length-1;i>=0;i--){ const d=deers[i]; if (Math.hypot(player.x+player.facing.x*reach-d.x, player.y+player.facing.y*reach-d.y)<player.r+d.r){ d.hp--; ASSETS.s_hit.currentTime=0; ASSETS.s_hit.play().catch(()=>{}); if (d.hp<=0){ deers.splice(i,1); player.rawMeat++; toast('Carne cruda +1'); updateInvUI(); saveLS(); } return true; } }
+    for (let i=fishs.length-1;i>=0;i--){ const f=fishs[i]; if (Math.hypot(player.x+player.facing.x*reach-f.x, player.y+player.facing.y*reach-f.y)<player.r+f.r){ fishs.splice(i,1); player.rawFish++; ASSETS.s_hit.play().catch(()=>{}); toast('Pescado crudo +1'); updateInvUI(); saveLS(); return true; } }
     return true;
   }
   function shootArrow(){
     if (!player.bowEquipped || player.arrows<=0) return false;
     const sp = 180;
     projectiles.push({ x:player.x, y:player.y, vx:player.facing.x*sp, vy:player.facing.y*sp, life:1.4 });
-    player.arrows--; toast('Flechas: '+player.arrows);
+    player.arrows--; toast('Flechas: '+player.arrows); updateInvUI(); saveLS();
     return true;
   }
   function craftFire(){
@@ -257,7 +369,7 @@
         const px=player.x+player.facing.x*10, py=player.y+player.facing.y*10;
         campfires.push({x:px,y:py,r:50,life:120});
         ASSETS.s_craft.currentTime=0; ASSETS.s_craft.play().catch(()=>{});
-        toast('Fogata creada'); updateMissions();
+        toast('Fogata creada'); updateMissions(); updateInvUI(); saveLS();
       } else toast('3 madera + 1 piedra');
       setTimeout(()=>{ tick.craftLatch=false; }, 200);
     }
@@ -269,11 +381,19 @@
     if (type==='wall'){ if (player.wood<2) return toast('Pared: 2 madera'); player.wood-=2; }
     else if (type==='floor'){ if (player.wood<1) return toast('Piso: 1 madera'); player.wood-=1; }
     else if (type==='roof'){ if (player.wood<1||player.stone<1) return toast('Techo: 1 madera + 1 piedra'); player.wood-=1; player.stone-=1; }
-    else if (type==='door'){ if (player.wood<2||player.stone<1) return toast('Puerta: 2 madera + 1 piedra'); player.wood-=2; player.stone-=1; buildings.push({type:'door',x:gx,y:gy,rot:0,open:false}); ASSETS.s_craft.play().catch(()=>{}); updateMissions(); updateInvUI(); return; }
-    else if (type==='trap'){ if (player.wood<2||player.stone<1) return toast('Trampa: 2 madera + 1 piedra'); player.wood-=2; player.stone-=1; buildings.push({type:'trap',x:gx,y:gy,rot:0,armed:true}); ASSETS.s_craft.play().catch(()=>{}); updateInvUI(); return; }
+    else if (type==='door'){ if (player.wood<2||player.stone<1) return toast('Puerta: 2 madera + 1 piedra'); player.wood-=2; player.stone-=1; buildings.push({type:'door',x:gx,y:gy,rot:0,open:false}); ASSETS.s_craft.play().catch(()=>{}); updateMissions(); updateInvUI(); saveLS(); return; }
+    else if (type==='trap'){ if (player.wood<2||player.stone<1) return toast('Trampa: 2 madera + 1 piedra'); player.wood-=2; player.stone-=1; buildings.push({type:'trap',x:gx,y:gy,rot:0,armed:true}); ASSETS.s_craft.play().catch(()=>{}); updateInvUI(); saveLS(); return; }
+    else if (type==='shelter'){
+      if (player.wood<6 || player.stone<2) return toast('Refugio: 6 madera + 2 piedra');
+      player.wood -= 6; player.stone -= 2;
+      buildings.push({type:'shelter', x:gx, y:gy, rot:0});
+      ASSETS.s_craft.play().catch(()=>{});
+      updateInvUI(); saveLS();
+      return;
+    }
     buildings.push({type,x:gx,y:gy,rot:build.rot%4});
     ASSETS.s_craft.currentTime=0; ASSETS.s_craft.play().catch(()=>{});
-    updateInvUI();
+    updateInvUI(); saveLS();
   }
   function tryToggleDoor(){
     let nearest=null, nd=9999;
@@ -282,18 +402,23 @@
       const d = Math.hypot(player.x-b.x, player.y-b.y);
       if (d<nd){ nd=d; nearest=b; }
     }
-    if (nearest && nd<20){ nearest.open=!nearest.open; toast(nearest.open?'Puerta abierta':'Puerta cerrada'); }
+    if (nearest && nd<20){ nearest.open=!nearest.open; toast(nearest.open?'Puerta abierta':'Puerta cerrada'); saveLS(); }
     else toast('Acercate a una puerta');
   }
 
   function circleRectCollide(cx,cy,r,rx,ry,rw,rh){ const nx=Math.max(rx,Math.min(cx,rx+rw)); const ny=Math.max(ry,Math.min(cy,ry+rh)); return (cx-nx)**2+(cy-ny)**2<=r*r; }
 
-  // mouse/touch attack
-  let mouseDown=false; addEventListener('mousedown', e=>{ mouseDown=true; e.preventDefault(); }, {passive:false}); addEventListener('mouseup', e=>{ mouseDown=false; }, {passive:true});
+  // mouse/touch action
+  let mouseDown=false;
+  addEventListener('mousedown', e=>{ mouseDown=true; e.preventDefault(); }, {passive:false});
+  addEventListener('mouseup', e=>{ mouseDown=false; }, {passive:true});
 
   let stepTimer=0;
   function tick(){
     const now=performance.now(); let dt=(now-last)/1000; last=now; if (dt>0.05) dt=0.05;
+
+    // CLIMA
+    updateWeather(dt);
 
     // Input vector
     let ix=0, iy=0;
@@ -301,7 +426,6 @@
     if (keys.has('s')) { iy+=1; player.dirName='down'; }
     if (keys.has('a')) { ix-=1; player.dirName='left'; }
     if (keys.has('d')) { ix+=1; player.dirName='right'; }
-    // Joystick
     if (joyState.active){
       const dx = joyState.x - (document.getElementById('joy').clientWidth)/2;
       const dy = joyState.y - (document.getElementById('joy').clientHeight)/2;
@@ -341,10 +465,17 @@
     // oxygen
     if (inWater) {
       const under = player.y > water.surface;
-      if (player.boatEquipped){ player.oxygen = Math.min(100, player.oxygen + 35*dt); } // en barco, no se agota
-      else if (under) { player.oxygen = Math.max(0, player.oxygen - 8*dt); if (player.oxygen===0) player.energy = Math.max(0, player.energy - 10*dt); }
-      else { player.oxygen = Math.min(100, player.oxygen + 25*dt); }
-    } else { player.oxygen = Math.min(100, player.oxygen + 25*dt); }
+      if (player.boatEquipped) {
+        player.oxygen = Math.min(100, player.oxygen + 35*dt);
+      } else if (under) {
+        player.oxygen = Math.max(0, player.oxygen - 4*dt);
+        if (player.oxygen === 0) player.energy = Math.max(0, player.energy - 10*dt);
+      } else {
+        player.oxygen = Math.min(100, player.oxygen + 35*dt);
+      }
+    } else {
+      player.oxygen = Math.min(100, player.oxygen + 35*dt);
+    }
 
     // meters
     player.hunger = Math.max(0, player.hunger - 0.6*dt);
@@ -352,31 +483,45 @@
     if (player.invuln>0) player.invuln -= dt;
 
     // pickups
-    for (let i=rocks.length-1;i>=0;i--){ const r=rocks[i]; if (Math.hypot(player.x-r.x, player.y-r.y) < player.r + r.r){ player.stone++; rocks.splice(i,1); ASSETS.s_pickup.currentTime=0; ASSETS.s_pickup.play().catch(()=>{}); toast('Piedra +1'); } }
-    for (let i=woods.length-1;i>=0;i--){ const w=woods[i]; if (Math.hypot(player.x-w.x, player.y-w.y) < player.r + w.r){ player.wood++; woods.splice(i,1); ASSETS.s_pickup.currentTime=0; ASSETS.s_pickup.play().catch(()=>{}); toast('Madera +1'); } }
+    for (let i=rocks.length-1;i>=0;i--){ const r=rocks[i]; if (Math.hypot(player.x-r.x, player.y-r.y) < player.r + r.r){ player.stone++; rocks.splice(i,1); ASSETS.s_pickup.currentTime=0; ASSETS.s_pickup.play().catch(()=>{}); toast('Piedra +1'); updateInvUI(); saveLS(); } }
+    for (let i=woods.length-1;i>=0;i--){ const w=woods[i]; if (Math.hypot(player.x-w.x, player.y-w.y) < player.r + w.r){ player.wood++; woods.splice(i,1); ASSETS.s_pickup.currentTime=0; ASSETS.s_pickup.play().catch(()=>{}); toast('Madera +1'); updateInvUI(); saveLS(); } }
 
     // click action
-    if (mouseDown){ if (build.mode) tryBuild(); else { if (!shootArrow()) tryAttack(); } mouseDown=false; }
+    if (mouseDown){
+      if (build.mode) tryBuild();
+      else if (!interactNPC()) { if (!shootArrow()) tryAttack(); }
+      mouseDown=false;
+    }
 
     // tecla C (desktop) fogata
     if (keys.has('c')){ craftFire(); }
 
     // campfires
     let nearHeat=false;
-    for (let i=campfires.length-1;i>=0;i--){ const f=campfires[i]; f.life-=dt; if (f.life<=0){ campfires.splice(i,1); continue; } if (Math.hypot(player.x-f.x, player.y-f.y)<f.r) nearHeat=true; }
-    if (nearHeat) player.warmth=Math.min(100, player.warmth + 10*dt);
-    else player.warmth=Math.max(0, player.warmth - 1.2*dt);
+    for (let i=campfires.length-1;i>=0;i--){ const f=campfires[i]; f.life-=dt; if (f.life<=0){ campfires.splice(i,1); saveLS(); continue; } if (Math.hypot(player.x-f.x, player.y-f.y)<f.r) nearHeat=true; }
 
-    // animales simple anim
+    // refugio + clima afectan warmth
+    const sheltered = underShelter(player.x, player.y);
+    let warmthLoss = 1.2; // base
+    warmthLoss *= (1 + weather.rain*0.8 + weather.wind*0.4); // clima
+    if (sheltered) warmthLoss *= 0.35;
+    if (nearHeat) {
+      const gain = 10 + weather.rain*3 + weather.wind*2;
+      player.warmth = Math.min(100, player.warmth + gain*dt);
+    } else {
+      player.warmth = Math.max(0, player.warmth - warmthLoss*dt);
+    }
+
+    // animales anim
     for (const c of crabs){ c.t+=dt; if (c.t>0.2){ c.anim=(c.anim+1)%2; c.t=0; } }
     for (const d of deers){ d.t+=dt; if (d.t>0.25){ d.anim=(d.anim+1)%2; d.t=0; } }
     for (const f of fishs){ f.t+=dt; if (f.t>0.25){ f.anim=(f.anim+1)%2; f.t=0; } }
 
-    // trampas: capturan animales
+    // trampas
     for (const b of buildings){
       if (b.type==='trap' && b.armed){
-        for (let i=deers.length-1;i>=0;i--){ const d=deers[i]; if (circleRectCollide(d.x,d.y,d.r,b.x-8,b.y-8,16,16)){ deers.splice(i,1); player.rawMeat++; b.armed=false; toast('Trampa: carne +1'); updateInvUI(); break; } }
-        for (let i=crabs.length-1;i>=0;i--){ const c=crabs[i]; if (circleRectCollide(c.x,c.y,c.r,b.x-8,b.y-8,16,16)){ crabs.splice(i,1); player.stone++; b.armed=false; toast('Trampa: piedra +1'); updateInvUI(); break; } }
+        for (let i=deers.length-1;i>=0;i--){ const d=deers[i]; if (circleRectCollide(d.x,d.y,d.r,b.x-8,b.y-8,16,16)){ deers.splice(i,1); player.rawMeat++; b.armed=false; toast('Trampa: carne +1'); updateInvUI(); saveLS(); break; } }
+        for (let i=crabs.length-1;i>=0;i--){ const c=crabs[i]; if (circleRectCollide(c.x,c.y,c.r,b.x-8,b.y-8,16,16)){ crabs.splice(i,1); player.stone++; b.armed=false; toast('Trampa: piedra +1'); updateInvUI(); saveLS(); break; } }
       }
     }
 
@@ -385,21 +530,21 @@
       const p=projectiles[i];
       p.x += p.vx*dt; p.y += p.vy*dt; p.life -= dt;
       let hit=false;
-      for (let j=deers.length-1;j>=0;j--){ const d=deers[j]; if (Math.hypot(p.x-d.x,p.y-d.y) < d.r+2){ d.hp--; if (d.hp<=0){ deers.splice(j,1); player.rawMeat++; toast('Carne cruda +1'); } hit=true; break; } }
-      for (let j=fishs.length-1;j>=0 && !hit;j--){ const f=fishs[j]; if (Math.hypot(p.x-f.x,p.y-f.y) < f.r+2){ fishs.splice(j,1); player.rawFish++; toast('Pescado crudo +1'); hit=true; break; } }
+      for (let j=deers.length-1;j>=0;j--){ const d=deers[j]; if (Math.hypot(p.x-d.x,p.y-d.y) < d.r+2){ d.hp--; if (d.hp<=0){ deers.splice(j,1); player.rawMeat++; toast('Carne cruda +1'); updateInvUI(); saveLS(); } hit=true; break; } }
+      for (let j=fishs.length-1;j>=0 && !hit;j--){ const f=fishs[j]; if (Math.hypot(p.x-f.x,p.y-f.y) < f.r+2){ fishs.splice(j,1); player.rawFish++; toast('Pescado crudo +1'); updateInvUI(); saveLS(); hit=true; break; } }
       if (hit || p.life<=0) projectiles.splice(i,1);
     }
 
-    // save/load (desktop)
-    if (keys.has('s')){ if (!tick.saveLatch){ tick.saveLatch=true; saveLS(); } } else tick.saveLatch=false;
-    if (keys.has('l')){ if (!tick.loadLatch){ tick.loadLatch=true; loadLS(); } } else tick.loadLatch=false;
+    // manual save/load
+    if (keys.has('s')){ if (!tick.saveLatch){ tick.saveLatch=true; saveLS(); toast('Guardado.'); } } else tick.saveLatch=false;
+    if (keys.has('l')){ if (!tick.loadLatch){ tick.loadLatch=true; if(loadLS()) toast('Cargado.'); else toast('No hay guardado.'); } } else tick.loadLatch=false;
 
     // anim
     player.animTimer += dt; const moving = (ix||iy);
     if (!moving) player.animFrame = 0; else if (player.animTimer>0.16){ player.animFrame = (player.animFrame+1)%3; player.animTimer=0; }
 
     // time
-    timeOfDay += (dt * 24 / DAY_SPEED); if (timeOfDay>=24){ timeOfDay-=24; day++; updateMissions(); }
+    timeOfDay += (dt * 24 / DAY_SPEED); if (timeOfDay>=24){ timeOfDay-=24; day++; updateMissions(); saveLS(); }
     shoreAnim += dt*4;
 
     // camera
@@ -431,6 +576,7 @@
     ctx.globalAlpha=0.6;
     if (type==='door'){ drawDoor(gx-cam.x, gy-cam.y, true); }
     else if (type==='trap'){ drawTrap(gx-cam.x, gy-cam.y, true); }
+    else if (type==='shelter'){ drawShelter(gx-cam.x, gy-cam.y, true); }
     else { const img=ASSETS[type]; if(img) ctx.drawImage(img, (Math.floor(gx - cam.x)-8)*SCALE, (Math.floor(gy - cam.y)-8)*SCALE, 16*SCALE, 16*SCALE); }
     ctx.globalAlpha=1.0;
   }
@@ -462,6 +608,7 @@
       const x=Math.floor(b.x - cam.x), y=Math.floor(b.y - cam.y);
       if (b.type==='door') drawDoor(x, y, false, b.open);
       else if (b.type==='trap') drawTrap(x, y, false, b.armed);
+      else if (b.type==='shelter') drawShelter(x, y);
       else { const img=ASSETS[b.type]; if (!img) continue; ctx.drawImage(img, (x-8)*SCALE, (y-8)*SCALE, 16*SCALE, 16*SCALE); }
     }
 
@@ -470,9 +617,18 @@
     for (const d of deers){ const x=Math.floor(d.x - cam.x), y=Math.floor(d.y - cam.y); ctx.drawImage(ASSETS.deer[d.anim||0], (x-8)*SCALE, (y-8)*SCALE, 16*SCALE, 16*SCALE); }
     for (const f of fishs){ const x=Math.floor(f.x - cam.x), y=Math.floor(f.y - cam.y); ctx.drawImage(ASSETS.fish[f.anim||0], (x-8)*SCALE, (y-8)*SCALE, 16*SCALE, 16*SCALE); }
 
+    // NPCs
+    for (const n of npcs){
+      const x=Math.floor(n.x - cam.x), y=Math.floor(n.y - cam.y);
+      ctx.fillStyle='#ffd166'; ctx.fillRect((x-3)*SCALE, (y-6)*SCALE, 6*SCALE, 8*SCALE);
+      ctx.fillStyle='#5a3d1e'; ctx.fillRect((x-2)*SCALE, (y-9)*SCALE, 4*SCALE, 3*SCALE);
+    }
+
     // jugador
-    const px=Math.floor(player.x - cam.x), py=Math.floor(player.y - cam.y); ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect((px-8)*SCALE, (py+6)*SCALE, 16*SCALE, 4*SCALE);
-    const frame = ASSETS.player[player.dirName][player.animFrame||0] || ASSETS.player.right[0]; ctx.drawImage(frame, (px-8)*SCALE, (py-12)*SCALE, 16*SCALE, 16*SCALE);
+    const px=Math.floor(player.x - cam.x), py=Math.floor(player.y - cam.y);
+    ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect((px-8)*SCALE, (py+6)*SCALE, 16*SCALE, 4*SCALE);
+    const frame = ASSETS.player[player.dirName][player.animFrame||0] || ASSETS.player.right[0];
+    ctx.drawImage(frame, (px-8)*SCALE, (py-12)*SCALE, 16*SCALE, 16*SCALE);
 
     // flechas
     ctx.fillStyle='#ffd166';
@@ -480,13 +636,19 @@
 
     drawBuildGhost();
 
+    // Lluvia
+    drawRain();
+
     // Noche
-    let nightAlpha=0; if (timeOfDay>=19) nightAlpha=Math.min(0.75, (timeOfDay-19)/3); else if (timeOfDay<=5) nightAlpha=Math.min(0.75, (5-timeOfDay)/3);
+    let nightAlpha = 0;
+    if (timeOfDay >= 19) nightAlpha = Math.min(0.65, (timeOfDay - 19) / 3);
+    else if (timeOfDay <= 5) nightAlpha = Math.min(0.65, (5 - timeOfDay) / 3);
+
     if (nightAlpha>0){
       ctx.save(); ctx.globalAlpha=nightAlpha; ctx.fillStyle='rgba(0,0,20,1)'; ctx.fillRect(0,0,cvs.width,cvs.height);
       ctx.globalCompositeOperation='destination-out';
-      radialHole(px*SCALE, py*SCALE, 55*SCALE);
-      for (const f of campfires){ const x=Math.floor(f.x - cam.x), y=Math.floor(f.y - cam.y); radialHole(x*SCALE, y*SCALE, 110*SCALE); }
+      radialHole(px*SCALE, py*SCALE, 160*SCALE);
+      for (const f of campfires){ const x=Math.floor(f.x - cam.x), y=Math.floor(f.y - cam.y); radialHole(x*SCALE, y*SCALE, 160*SCALE); }
       ctx.restore(); ctx.globalCompositeOperation='source-over';
     }
   }
@@ -506,6 +668,24 @@
     ctx.strokeStyle=armed?'#ffb703':'#aaa'; ctx.lineWidth=2; ctx.strokeRect(gx+3*SCALE, gy+3*SCALE, 10*SCALE, 10*SCALE);
     ctx.restore();
   }
+  function drawShelter(x, y, ghost=false){
+    const gx=(x-8)*SCALE, gy=(y-8)*SCALE;
+    ctx.save(); if (ghost) ctx.globalAlpha=0.6;
+    ctx.fillStyle='#6b4d2e';
+    ctx.fillRect(gx+2*SCALE, gy+8*SCALE, 2*SCALE, 6*SCALE);
+    ctx.fillRect(gx+12*SCALE, gy+8*SCALE, 2*SCALE, 6*SCALE);
+    ctx.fillStyle='#8a0';
+    ctx.fillRect(gx+1*SCALE, gy+4*SCALE, 14*SCALE, 4*SCALE);
+    ctx.restore();
+  }
+  function underShelter(px, py){
+    for (const b of buildings){
+      if (b.type==='shelter' || b.type==='roof'){
+        if (Math.hypot(px - b.x, py - b.y) < 24) return true;
+      }
+    }
+    return false;
+  }
 
   function radialHole(cx,cy,r){ const g = ctx.createRadialGradient(cx,cy, r*0.4, cx,cy, r); g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill(); }
 
@@ -519,7 +699,41 @@
     mctx.strokeStyle='#9eb1ff'; mctx.lineWidth=1; mctx.strokeRect(cam.x/WORLD.w*mw, cam.y/WORLD.h*mh, W/WORLD.w*mw, H/WORLD.h*mh);
   }
 
-  // Key shortcuts (desktop)
-  addEventListener('keydown', (e)=>{ const k=e.key.toLowerCase(); if (k==='s') saveLS(); if (k==='l') loadLS(); });
+  // NPC interacción con diálogo centrado
+  function interactNPC(){
+    let who=null, dmin=9999;
+    for (const n of npcs){
+      const d = Math.hypot(player.x - n.x, player.y - n.y);
+      if (d < dmin){ dmin = d; who = n; }
+    }
+    if (!who || dmin > 18) return false;
+
+    if (!who.talked){
+      showDialog([`<b>${who.name}</b>`, '¡Menos mal te encontré! ¿Tenés 5 de madera?']);
+      who.talked = true; saveLS();
+      return true;
+    }
+    if (!who.quest.done){
+      if (player.wood >= who.quest.need){
+        player.wood -= who.quest.need;
+        who.quest.done = true;
+        showDialog([`<b>${who.name}</b>`, '¡Gracias! Tomá, te doy <b>10 flechas</b>.']);
+        player.arrows += 10; updateInvUI(); saveLS();
+      } else {
+        showDialog([`<b>${who.name}</b>`, `Aún te faltan <b>${who.quest.need - player.wood}</b> de madera.`]);
+      }
+      return true;
+    }
+    if (!who.quest.rewarded){
+      who.quest.rewarded = true; saveLS();
+      showDialog([`<b>${who.name}</b>`, 'Si hacés un barco, podés salir por el norte.']);
+      return true;
+    }
+    showDialog([`<b>${who.name}</b>`, '¡Nos vemos! Quedate bajo refugio si llueve.']);
+    return true;
+  }
+
+  // Atajos desktop (manuales)
+  addEventListener('keydown', (e)=>{ const k=e.key.toLowerCase(); if (k==='s') { saveLS(); toast('Guardado.'); } if (k==='l') { if(loadLS()) toast('Cargado.'); else toast('No hay guardado.'); } });
 
 })();

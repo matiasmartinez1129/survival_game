@@ -22,9 +22,11 @@
 
   <div id="toast">Mobile listo. Tocá la pantalla para habilitar audio.</div>
 
+  <!-- INVENTARIO -->
   <div id="inventory" class="hidden">
     <div class="inv-card">
       <h3>Inventario & Crafteo</h3>
+
       <div class="inv-grid">
         <div><b>Madera:</b> <span id="woodCount">0</span></div>
         <div><b>Piedra:</b> <span id="stoneCount">0</span></div>
@@ -35,11 +37,19 @@
         <div><b>Lanza:</b> <span id="spearOwned">no</span></div>
       </div>
 
+      <h4>Equipables (tocar para equipar)</h4>
+      <div class="equip-grid">
+        <button id="equipSpearTile" class="equip">Lanza</button>
+        <button id="equipBowTile" class="equip">Arco</button>
+        <button id="equipBoatTile" class="equip">Barco</button>
+      </div>
+
+      <div style="margin-top:8px; color:#cfd7ff"><b>Flechas:</b> <span id="arrowCount">0</span></div>
+
       <h4>Armas</h4>
       <div class="recipes">
         <button id="btnCraftSpear">Craftear Lanza (2 madera + 1 piedra)</button>
         <button id="btnEquipSpear">Equipar/Quitar Lanza</button>
-        <!-- NUEVO: arco/flechas -->
         <button id="btnCraftBow">Craftear Arco (3 madera)</button>
         <button id="btnCraftArrows">Craftear 5 Flechas (1 madera + 1 piedra)</button>
         <button id="btnEquipBow">Equipar/Quitar Arco</button>
@@ -57,15 +67,23 @@
         <button id="btnCookFish">Cocinar Pescado (1 crudo → 1 cocido)</button>
       </div>
 
+      <h4>Consumibles</h4>
+      <div class="recipes">
+        <button id="btnEatMeat">Comer Carne Cocida (+25 hambre, +10 energía)</button>
+        <button id="btnEatFish">Comer Pescado Cocido (+18 hambre, +6 energía)</button>
+      </div>
+
       <h4>Guardado</h4>
       <div class="recipes">
         <button id="btnExport">Exportar guardado (.json)</button>
         <label class="import">Importar guardado<input id="fileImport" type="file" accept=".json"></label>
       </div>
+
       <div class="tips">Cerrar con <b>I</b> o <b>Esc</b></div>
     </div>
   </div>
 
+  <!-- CONSTRUCCIÓN -->
   <div id="buildPanel" class="hidden">
     <div class="inv-card">
       <h3>Construcción</h3>
@@ -73,9 +91,9 @@
         <button data-build="wall">Pared (2 madera)</button>
         <button data-build="floor">Piso (1 madera)</button>
         <button data-build="roof">Techo (1 madera + 1 piedra)</button>
-        <!-- NUEVO -->
         <button data-build="door">Puerta (2 madera + 1 piedra)</button>
         <button data-build="trap">Trampa (2 madera + 1 piedra)</button>
+        <button data-build="shelter">Refugio (6 madera + 2 piedra)</button>
         <button id="btnExitBuild">Salir (B)</button>
       </div>
       <div class="tips">Click/Toque coloca · B/ESC cierra</div>
@@ -97,6 +115,14 @@
     </div>
   </div>
   <div id="rotateOverlay">Girá el teléfono a horizontal</div>
+
+  <!-- Diálogo centrado -->
+  <div id="dialog" class="hidden">
+    <div class="dialog-box">
+      <div id="dialogText" class="dialog-text"></div>
+      <button id="dialogClose">Continuar</button>
+    </div>
+  </div>
 
   <script src="game.js"></script>
 </body>

@@ -34,16 +34,29 @@
         <div><b>Pescado cocido:</b> <span id="cookedFish">0</span></div>
         <div><b>Lanza:</b> <span id="spearOwned">no</span></div>
       </div>
+
       <h4>Armas</h4>
       <div class="recipes">
         <button id="btnCraftSpear">Craftear Lanza (2 madera + 1 piedra)</button>
         <button id="btnEquipSpear">Equipar/Quitar Lanza</button>
+        <!-- NUEVO: arco/flechas -->
+        <button id="btnCraftBow">Craftear Arco (3 madera)</button>
+        <button id="btnCraftArrows">Craftear 5 Flechas (1 madera + 1 piedra)</button>
+        <button id="btnEquipBow">Equipar/Quitar Arco</button>
       </div>
+
+      <h4>Navegación</h4>
+      <div class="recipes">
+        <button id="btnCraftBoat">Craftear Barco (10 madera + 2 piedra)</button>
+        <button id="btnEquipBoat">Equipar/Quitar Barco</button>
+      </div>
+
       <h4>Cocina (cerca de fogata)</h4>
       <div class="recipes">
         <button id="btnCookMeat">Cocinar Carne (1 cruda → 1 cocida)</button>
         <button id="btnCookFish">Cocinar Pescado (1 crudo → 1 cocido)</button>
       </div>
+
       <h4>Guardado</h4>
       <div class="recipes">
         <button id="btnExport">Exportar guardado (.json)</button>
@@ -60,12 +73,16 @@
         <button data-build="wall">Pared (2 madera)</button>
         <button data-build="floor">Piso (1 madera)</button>
         <button data-build="roof">Techo (1 madera + 1 piedra)</button>
+        <!-- NUEVO -->
+        <button data-build="door">Puerta (2 madera + 1 piedra)</button>
+        <button data-build="trap">Trampa (2 madera + 1 piedra)</button>
         <button id="btnExitBuild">Salir (B)</button>
       </div>
-      <div class="tips">Click/Toque coloca · Rueda rota (en móvil no aplica) · B/ESC cierra</div>
+      <div class="tips">Click/Toque coloca · B/ESC cierra</div>
     </div>
   </div>
 
+  <!-- Controles táctiles -->
   <div id="mobileControls">
     <div id="joy"><div class="stick"></div></div>
     <div id="btns">

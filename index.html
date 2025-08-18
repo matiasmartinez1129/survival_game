@@ -12,13 +12,14 @@
   <canvas id="minimap" width="200" height="140"></canvas>
 
   <div id="hud">
-  <div class="bar hp"><span></span></div>
-  <div class="bar energy"><span></span></div>
-  <div class="bar oxygen"><span></span></div>
-  <div id="invHUD">—</div>
-  <div id="hint">Joystick: mover · Run: sprint · Atk/Use: atacar o colocar · Inv/Build · Fogata · Puerta · Mis · Full</div>
-</div>
+    <div class="bar hp"><span></span></div>
+    <div class="bar energy"><span></span></div>
+    <div class="bar oxygen"><span></span></div>
+    <div id="invHUD">—</div>
+  </div>
 
+  <!-- Indicaciones centrales temporales -->
+  <div id="hintCenter" class="hidden"></div>
 
   <div id="toast">Mobile listo. Tocá la pantalla para habilitar audio.</div>
 
@@ -35,16 +36,17 @@
         <div><b>Carne cocida:</b> <span id="cookedMeat">0</span></div>
         <div><b>Pescado cocido:</b> <span id="cookedFish">0</span></div>
         <div><b>Lanza:</b> <span id="spearOwned">no</span></div>
+        <div><b>Flechas:</b> <span id="arrowCount">0</span></div>
       </div>
 
       <h4>Equipables (tocar para equipar)</h4>
       <div class="equip-grid">
         <button id="equipSpearTile" class="equip">Lanza</button>
         <button id="equipBowTile" class="equip">Arco</button>
+        <button id="equipAxeTile" class="equip">Hacha</button>
+        <button id="equipPickTile" class="equip">Pico</button>
         <button id="equipBoatTile" class="equip">Barco</button>
       </div>
-
-      <div style="margin-top:8px; color:#cfd7ff"><b>Flechas:</b> <span id="arrowCount">0</span></div>
 
       <h4>Armas</h4>
       <div class="recipes">
@@ -55,13 +57,21 @@
         <button id="btnEquipBow">Equipar/Quitar Arco</button>
       </div>
 
+      <h4>Herramientas</h4>
+      <div class="recipes">
+        <button id="btnCraftAxe">Craftear Hacha (1 madera + 1 piedra)</button>
+        <button id="btnEquipAxe">Equipar/Quitar Hacha</button>
+        <button id="btnCraftPick">Craftear Pico (1 madera + 2 piedra)</button>
+        <button id="btnEquipPick">Equipar/Quitar Pico</button>
+      </div>
+
       <h4>Navegación</h4>
       <div class="recipes">
         <button id="btnCraftBoat">Craftear Barco (10 madera + 2 piedra)</button>
         <button id="btnEquipBoat">Equipar/Quitar Barco</button>
       </div>
 
-      <h4>Cocina (cerca de fogata)</h4>
+      <h4>Cocina (fogata u horno)</h4>
       <div class="recipes">
         <button id="btnCookMeat">Cocinar Carne (1 cruda → 1 cocida)</button>
         <button id="btnCookFish">Cocinar Pescado (1 crudo → 1 cocido)</button>
@@ -69,8 +79,8 @@
 
       <h4>Consumibles</h4>
       <div class="recipes">
-        <button id="btnEatMeat">Comer Carne Cocida (+25 hambre, +10 energía)</button>
-        <button id="btnEatFish">Comer Pescado Cocido (+18 hambre, +6 energía)</button>
+        <button id="btnEatMeat">Comer Carne Cocida (+10 HP, +12 energía)</button>
+        <button id="btnEatFish">Comer Pescado Cocido (+6 HP, +8 energía)</button>
       </div>
 
       <h4>Guardado</h4>
@@ -94,6 +104,9 @@
         <button data-build="door">Puerta (2 madera + 1 piedra)</button>
         <button data-build="trap">Trampa (2 madera + 1 piedra)</button>
         <button data-build="shelter">Refugio (6 madera + 2 piedra)</button>
+        <!-- Nuevos -->
+        <button data-build="workbench">Mesa de Crafteo (4 madera + 2 piedra)</button>
+        <button data-build="furnace">Horno (8 piedra)</button>
         <button id="btnExitBuild">Salir (B)</button>
       </div>
       <div class="tips">Click/Toque coloca · B/ESC cierra</div>

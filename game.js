@@ -12,8 +12,7 @@
     cvs.width = W*SCALE;
     cvs.height = H*SCALE;
     ctx.imageSmoothingEnabled = false;
-
-    setupLightBuffer(); // re-crear buffer con W/H base
+    setupLightBuffer(); // recrea buffer con W/H base
   }
   addEventListener('resize', resize);
 
@@ -34,7 +33,6 @@
       const i=new Image();
       i.onload=()=>res(i);
       i.onerror=()=>{ const p=new Image(); p.onload=()=>res(p);
-        // fallback 14x14 si falta el asset
         p.src='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAALElEQVQ4T2NkYGD4z0AJwDiqgQkGEiCwA5LJwqgYkQwGg0E0aA1GQ0kAgBp0gBEuA1VmAAAAAElFTkSuQmCC';
       };
       i.src=src;
@@ -57,22 +55,23 @@
   };
 
   // ---- Assets ----
-  const ASSETS = { 
+  const ASSETS = {
     player:{down:[],left:[],right:[],up:[]},
-    // mundo
+    eq:{spear:null,bow:null,axe:null,pick:null,boat:null},
     tree:null, rock:null, wood:null, campfire:null, grass:null, sand:null, rock_tile:null, water:null, shore:[],
     crab:[], deer:[], fish:[],
     wall:null, floor:null, roof:null,
-    // equipo visible
-    spear:null, bow:null, axe:null, pick:null, boat:null,
-    // sfx
     s_pickup:null,s_craft:null,s_campfire:null,s_water:null,s_step:null,s_hit:null
   };
 
   Promise.all([
-    // jugador
     ...['down','left','right','up'].flatMap(dn => [0,1,2].map(f => loadImage(`assets/player_${dn}_${f}.png`).then(i=>ASSETS.player[dn][f]=i))),
-    // mundo
+    loadImage('assets/eq_spear.png').then(i=>ASSETS.eq.spear=i),
+    loadImage('assets/eq_bow.png').then(i=>ASSETS.eq.bow=i),
+    loadImage('assets/eq_axe.png').then(i=>ASSETS.eq.axe=i),
+    loadImage('assets/eq_pick.png').then(i=>ASSETS.eq.pick=i),
+    loadImage('assets/boat.png').then(i=>ASSETS.eq.boat=i),
+
     loadImage('assets/tree.png').then(i=>ASSETS.tree=i),
     loadImage('assets/rock.png').then(i=>ASSETS.rock=i),
     loadImage('assets/wood.png').then(i=>ASSETS.wood=i),
@@ -93,12 +92,6 @@
     loadImage('assets/wall.png').then(i=>ASSETS.wall=i),
     loadImage('assets/floor.png').then(i=>ASSETS.floor=i),
     loadImage('assets/roof.png').then(i=>ASSETS.roof=i),
-    // equipo visible (si faltan archivos, se usa fallback dibujado)
-    loadImage('assets/spear.png').then(i=>ASSETS.spear=i),
-    loadImage('assets/bow.png').then(i=>ASSETS.bow=i),
-    loadImage('assets/axe.png').then(i=>ASSETS.axe=i),
-    loadImage('assets/pick.png').then(i=>ASSETS.pick=i),
-    loadImage('assets/boat.png').then(i=>ASSETS.boat=i),
   ]).then(()=>start());
 
   ASSETS.s_pickup   = loadAudio('sounds/pickup.wav');
@@ -158,7 +151,7 @@
   // ---- Build (estado) ----
   const build = { mode:false, current:'wall', rot:0, grid:16 };
 
-  // ---- Input (teclado) ----
+  // ---- Input ----
   const keys = new Set();
   onkeydown = e => {
     const k=e.key.toLowerCase(); keys.add(k);
@@ -169,90 +162,25 @@
   };
   onkeyup   = e => { keys.delete(e.key.toLowerCase()); };
 
-  // ---- Mobile controls (joystick suave) ----
-  const joy = document.getElementById('joy');
-  const stick = joy.querySelector('.stick');
-  joy.style.touchAction = 'none';
-  stick.style.touchAction = 'none';
-
-  const JOY_CFG = { DEAD: 0.12, MAX: 56, SMOOTH: 18 }; // deadzone, radio máx (px), suavizado
-  const JOY = { active:false, id:null, nx:0, ny:0, sx:0, sy:0 }; // nx/ny = target; sx/sy = suavizado
+  // ---- Mobile controls ----
+  const joyState = {active:false, id:null, ox:0, oy:0, x:0, y:0};
   let runTouch = false;
 
-  function joyCenter(){
-    stick.style.left = '50%';
-    stick.style.top  = '50%';
-    stick.style.marginLeft='-32px';
-    stick.style.marginTop='-32px';
-  }
+  const joy = document.getElementById('joy'); const stick = joy.querySelector('.stick');
+  const btnA = document.getElementById('btnA'); const btnRun = document.getElementById('btnRun');
+  const btnInv = document.getElementById('btnInv'); const btnBuild = document.getElementById('btnBuild');
+  const btnFire = document.getElementById('btnFire'); const btnDoor = document.getElementById('btnDoor');
+  const btnMis = document.getElementById('btnMis'); const btnFS = document.getElementById('btnFS');
+
+  function joyCenter(){ stick.style.left='50%'; stick.style.top='50%'; stick.style.marginLeft='-32px'; stick.style.marginTop='-32px'; }
   joyCenter();
+  // más suave: normalización + zona muerta + clamp
+  joy.addEventListener('pointerdown', (e)=>{ joy.setPointerCapture(e.pointerId); const r=joy.getBoundingClientRect(); joyState.active=true; joyState.id=e.pointerId; joyState.ox=e.clientX-r.left; joyState.oy=e.clientY-r.top; joyState.x=joyState.ox; joyState.y=joyState.oy; stick.style.left=joyState.x+'px'; stick.style.top=joyState.y+'px'; stick.style.marginLeft='-32px'; stick.style.marginTop='-32px'; e.preventDefault(); }, {passive:false});
+  joy.addEventListener('pointermove', (e)=>{ if(!joyState.active||e.pointerId!==joyState.id) return; const r=joy.getBoundingClientRect(); joyState.x=Math.max(0,Math.min(joy.clientWidth,e.clientX-r.left)); joyState.y=Math.max(0,Math.min(joy.clientHeight,e.clientY-r.top)); const dx=joyState.x-joy.clientWidth/2, dy=joyState.y-joy.clientHeight/2; const max=56, dead=0.15*max; const mag=Math.hypot(dx,dy); let nx=0, ny=0; if (mag>dead){ const f=(mag-dead)/(max-dead); nx = (dx/mag)*f*max; ny = (dy/mag)*f*max; } stick.style.left=(joy.clientWidth/2+nx)+'px'; stick.style.top =(joy.clientHeight/2+ny)+'px'; stick.style.marginLeft='-32px'; stick.style.marginTop='-32px'; e.preventDefault(); }, {passive:false});
+  function joyUp(){ joyState.active=false; joyState.id=null; joyCenter(); }
+  joy.addEventListener('pointerup', (e)=>{ if(e.pointerId===joyState.id) joyUp(); }, {passive:false}); joy.addEventListener('pointercancel', ()=>joyUp(), {passive:true});
 
-  function joyUpdateFromEvent(e){
-    const r = joy.getBoundingClientRect();
-    const cx = r.left + r.width/2;
-    const cy = r.top  + r.height/2;
-
-    let dx = e.clientX - cx;
-    let dy = e.clientY - cy;
-
-    const d = Math.hypot(dx,dy);
-    const max = JOY_CFG.MAX;
-    if (d > max){ const s = max / (d || 1); dx *= s; dy *= s; }
-
-    let nx = dx / max, ny = dy / max;
-
-    const mag = Math.hypot(nx,ny);
-    if (mag < JOY_CFG.DEAD){ nx = 0; ny = 0; }
-    else {
-      const k = (mag - JOY_CFG.DEAD) / (1 - JOY_CFG.DEAD);
-      nx = (nx / (mag || 1)) * k;
-      ny = (ny / (mag || 1)) * k;
-    }
-
-    JOY.nx = nx; JOY.ny = ny;
-
-    stick.style.left = (r.width/2 + dx) + 'px';
-    stick.style.top  = (r.height/2 + dy) + 'px';
-    stick.style.marginLeft='-32px';
-    stick.style.marginTop='-32px';
-  }
-
-  joy.addEventListener('pointerdown', (e)=>{
-    JOY.active = true; JOY.id = e.pointerId;
-    joy.setPointerCapture(e.pointerId);
-    joyUpdateFromEvent(e);
-    e.preventDefault();
-  }, {passive:false});
-
-  window.addEventListener('pointermove', (e)=>{
-    if (!JOY.active || e.pointerId !== JOY.id) return;
-    joyUpdateFromEvent(e);
-  }, {passive:false});
-
-  function joyUp(e){
-    if (JOY.active && (!e || e.pointerId === JOY.id)){
-      JOY.active = false; JOY.id = null;
-      JOY.nx = 0; JOY.ny = 0;
-      joyCenter();
-    }
-  }
-  window.addEventListener('pointerup', joyUp, {passive:true});
-  window.addEventListener('pointercancel', joyUp, {passive:true});
-
-  function btnPress(el, down, up){
-    el.addEventListener('pointerdown', e=>{ down(); e.preventDefault(); }, {passive:false});
-    if (up) el.addEventListener('pointerup', e=>{ up(); e.preventDefault(); }, {passive:false});
-    el.addEventListener('pointerleave', ()=>{ up&&up(); }, {passive:true});
-  }
-  const btnA = document.getElementById('btnA');
-  const btnRun = document.getElementById('btnRun');
-  const btnInv = document.getElementById('btnInv');
-  const btnBuild = document.getElementById('btnBuild');
-  const btnFire = document.getElementById('btnFire');
-  const btnDoor = document.getElementById('btnDoor');
-  const btnMis = document.getElementById('btnMis');
-  const btnFS  = document.getElementById('btnFS');
-
+  function btnPress(el, down, up){ el.addEventListener('pointerdown', e=>{ down(); e.preventDefault(); }, {passive:false}); if (up) el.addEventListener('pointerup', e=>{ up(); e.preventDefault(); }, {passive:false}); el.addEventListener('pointerleave', ()=>{ up&&up(); }, {passive:true}); }
   btnPress(btnA, ()=>{ if (build.mode) { tryBuild(); } else if (!interactNPC()) { if (!shootArrow()) tryAttack(); } });
   btnPress(btnRun, ()=>{ runTouch=true; }, ()=>{ runTouch=false; });
   btnPress(btnInv, ()=>{ toggleInventory(); });
@@ -260,13 +188,7 @@
   btnPress(btnFire, ()=>{ craftFire(); });
   btnPress(btnDoor, ()=>{ tryToggleDoor(); });
   btnPress(btnMis,  ()=>{ toggleMissions(); });
-  btnFS && btnFS.addEventListener('click', async ()=>{ try{ await document.body.requestFullscreen(); }catch{} });
-
-  function updateJoystick(dt){
-    const k = Math.min(1, dt * JOY_CFG.SMOOTH);
-    JOY.sx += (JOY.nx - JOY.sx) * k;
-    JOY.sy += (JOY.ny - JOY.sy) * k;
-  }
+  btnFS.addEventListener('click', async ()=>{ try{ await document.body.requestFullscreen(); }catch{} });
 
   // ---- Overlay helpers
   const invDiv = document.getElementById('inventory');
@@ -327,16 +249,17 @@
     t('equipBoatTile',  player.boatEquipped);
   }
 
-  // Botones inventario
+  // Botones inventario / equipar
   $('btnEquipSpear').onclick = ()=>{ if (!player.spearOwned) return toast('Primero crafteá la lanza.'); player.spearEquipped=!player.spearEquipped; if (player.spearEquipped){ player.bowEquipped=false; player.axeEquipped=false; player.pickEquipped=false; } updateInvUI(); saveLS(); };
-  $('btnCraftSpear').onclick = ()=>{ if (player.wood>=1){ player.wood-=1; player.spearOwned=true; player.spearDur=40; try{ASSETS.s_craft.play();}catch(e){}; announce('Lanza creada'); updateInvUI(); updateMissions(); saveLS(); } else toast('1 madera'); };
-  $('btnCraftBow').onclick = ()=>{ if (player.wood>=2){ player.wood-=2; player.bowOwned=true; player.bowDur=60; try{ASSETS.s_craft.play();}catch(e){}; announce('Arco creado'); updateInvUI(); updateMissions(); saveLS(); } else toast('2 madera'); };
-  $('btnCraftArrows').onclick = ()=>{ if (player.wood>=1){ player.wood-=1; player.arrows+=8; try{ASSETS.s_craft.play();}catch(e){}; toast('Flechas +8'); updateInvUI(); saveLS(); } else toast('1 madera'); };
+  $('btnCraftSpear').onclick = ()=>{ if (player.wood>=1){ player.wood-=1; player.spearOwned=true; player.spearDur=40; try{ASSETS.s_craft.play();}catch{}; announce('Lanza creada'); updateInvUI(); updateMissions(); saveLS(); } else toast('1 madera'); };
+  $('btnCraftBow').onclick = ()=>{ if (player.wood>=2){ player.wood-=2; player.bowOwned=true; player.bowDur=60; try{ASSETS.s_craft.play();}catch{}; announce('Arco creado'); updateInvUI(); updateMissions(); saveLS(); } else toast('2 madera'); };
+  $('btnCraftArrows').onclick = ()=>{ if (player.wood>=1){ player.wood-=1; player.arrows+=8; try{ASSETS.s_craft.play();}catch{}; toast('Flechas +8'); updateInvUI(); saveLS(); } else toast('1 madera'); };
   $('btnEquipBow').onclick = ()=>{ if (!player.bowOwned) return toast('Primero crafteá el arco.'); player.bowEquipped=!player.bowEquipped; if (player.bowEquipped){ player.spearEquipped=false; player.axeEquipped=false; player.pickEquipped=false; } updateInvUI(); saveLS(); };
 
-  $('btnCraftBoat').onclick = ()=>{ if (player.wood>=10 && player.stone>=2){ player.wood-=10; player.stone-=2; player.boatOwned=true; try{ASSETS.s_craft.play();}catch(e){}; announce('Barco creado'); updateMissions(); updateInvUI(); saveLS(); } else toast('10 madera + 2 piedra'); };
+  $('btnCraftBoat').onclick = ()=>{ if (player.wood>=10 && player.stone>=2){ player.wood-=10; player.stone-=2; player.boatOwned=true; try{ASSETS.s_craft.play();}catch{}; announce('Barco creado'); updateMissions(); updateInvUI(); saveLS(); } else toast('10 madera + 2 piedra'); };
   $('btnEquipBoat').onclick = ()=>{ if (!player.boatOwned) return toast('Primero crafteá el barco.'); player.boatEquipped = !player.boatEquipped; toast(player.boatEquipped?'Barco equipado':'Barco guardado'); updateInvUI(); saveLS(); };
 
+  // Equip tiles
   const eqS=$('equipSpearTile'), eqB=$('equipBowTile'), eqBoat=$('equipBoatTile'), eqA=$('equipAxeTile'), eqP=$('equipPickTile');
   if (eqS) eqS.onclick = ()=>{ if (!player.spearOwned) return toast('No tenés lanza.'); player.spearEquipped=!player.spearEquipped; if (player.spearEquipped){ player.bowEquipped=false; player.axeEquipped=false; player.pickEquipped=false; } updateInvUI(); saveLS(); };
   if (eqB) eqB.onclick = ()=>{ if (!player.bowOwned) return toast('No tenés arco.'); player.bowEquipped=!player.bowEquipped; if (player.bowEquipped){ player.spearEquipped=false; player.axeEquipped=false; player.pickEquipped=false; } updateInvUI(); saveLS(); };
@@ -344,13 +267,13 @@
   if (eqP) eqP.onclick = ()=>{ if (!player.pickOwned) return toast('No tenés pico.'); player.pickEquipped=!player.pickEquipped; if (player.pickEquipped){ player.spearEquipped=false; player.bowEquipped=false; player.axeEquipped=false; } updateInvUI(); saveLS(); };
 
   // Herramientas (requiere mesa cerca)
-  function nearWorkbench(){ for (const b of buildings){ if (b.type==='workbench' && Math.hypot(player.x-b.x, player.y-b.y) < 22) return true; } return false; }
+  function nearWorkbench(){ for (const b of buildings){ if (b.type==='workbench' && Math.hypot(player.x-b.x, player.y-b.y) < 28) return true; } return false; }
   $('btnCraftAxe').onclick = ()=> {
     if (!nearWorkbench()) return announce('Acercate a una mesa de crafteo');
     if (player.wood>=1 && player.stone>=1){
       player.wood--; player.stone--;
       player.axeOwned=true; player.axeDur=45;
-      try{ASSETS.s_craft.play();}catch(e){}; announce('Hacha creada'); updateInvUI(); saveLS();
+      try{ASSETS.s_craft.play();}catch{}; announce('Hacha creada'); updateInvUI(); saveLS();
     } else toast('1 madera + 1 piedra');
   };
   $('btnEquipAxe').onclick = ()=>{ if (!player.axeOwned) return toast('No tenés hacha.'); player.axeEquipped=!player.axeEquipped; if (player.axeEquipped){ player.spearEquipped=false; player.bowEquipped=false; player.pickEquipped=false; } updateInvUI(); saveLS(); };
@@ -360,7 +283,7 @@
     if (player.wood>=1 && player.stone>=2){
       player.wood-=1; player.stone-=2;
       player.pickOwned=true; player.pickDur=50;
-      try{ASSETS.s_craft.play();}catch(e){}; announce('Pico creado'); updateInvUI(); saveLS();
+      try{ASSETS.s_craft.play();}catch{}; announce('Pico creado'); updateInvUI(); saveLS();
     } else toast('1 madera + 2 piedra');
   };
   $('btnEquipPick').onclick = ()=>{ if (!player.pickOwned) return toast('No tenés pico.'); player.pickEquipped=!player.pickEquipped; if (player.pickEquipped){ player.spearEquipped=false; player.bowEquipped=false; player.axeEquipped=false; } updateInvUI(); saveLS(); };
@@ -380,10 +303,10 @@
   addEventListener('wheel', e => { if (build.mode){ build.rot += Math.sign(e.deltaY); } });
 
   // ---- Save/Load ----
-  function collectSaveData(){ 
+  function collectSaveData(){
     return { player, campfires, rocks, woods, crabs, deers, fishs, buildings, timeOfDay, day, npcs, missions, regrow };
   }
-  function applySaveData(data){ 
+  function applySaveData(data){
     Object.assign(player, data.player||{});
     campfires.length=0; data.campfires?.forEach(o=>campfires.push(o));
     rocks.length=0; data.rocks?.forEach(o=>rocks.push(o));
@@ -451,7 +374,7 @@
       // Cerrar tocando fuera
       root.addEventListener('click', (e)=>{ if (e.target===root){ root.classList.add('hidden'); updateOverlayState(); } }, {passive:true});
 
-      // Botón cerrar
+      // Botón cerrar (fix mobile + desktop)
       const closeMis = (e)=>{ e?.preventDefault(); e?.stopPropagation(); root.classList.add('hidden'); updateOverlayState(); };
       const btnClose = root.querySelector('#btnCloseMis');
       btnClose.addEventListener('click', closeMis, {passive:false});
@@ -466,7 +389,7 @@
     updateOverlayState();
   }
 
-  // ===== CLIMA ===== (visual)
+  // ===== CLIMA =====
   const weather = { state: 'clear', rain: 0, wind: 0, t: 0, nextChange: 120 + Math.random()*120 };
   function setWeather(state){
     weather.state = state;
@@ -525,13 +448,13 @@
 
   function nearHeatSource(){
     for (const f of campfires){ if (Math.hypot(player.x-f.x, player.y-f.y) < f.r) return true; }
-    for (const b of buildings){ if (Math.hypot(player.x-b.x, player.y-b.y) < 40) return true; }
+    for (const b of buildings){ if (b.type==='furnace' && Math.hypot(player.x-b.x, player.y-b.y) < 40) return true; }
     return false;
   }
   function cook(which){
     if (!nearHeatSource()) return announce('Necesitás una fogata u horno cerca');
-    if (which==='meat' && player.rawMeat>=1){ player.rawMeat--; player.cookedMeat++; try{ASSETS.s_craft.play();}catch(e){}; toast('Carne cocinada'); updateInvUI(); saveLS(); }
-    else if (which==='fish' && player.rawFish>=1){ player.rawFish--; player.cookedFish++; try{ASSETS.s_craft.play();}catch(e){}; toast('Pescado cocinado'); updateInvUI(); saveLS(); }
+    if (which==='meat' && player.rawMeat>=1){ player.rawMeat--; player.cookedMeat++; try{ASSETS.s_craft.play();}catch{}; toast('Carne cocinada'); updateInvUI(); saveLS(); }
+    else if (which==='fish' && player.rawFish>=1){ player.rawFish--; player.cookedFish++; try{ASSETS.s_craft.play();}catch{}; toast('Pescado cocinado'); updateInvUI(); saveLS(); }
     else toast('Faltan ingredientes');
   }
 
@@ -598,7 +521,7 @@
       }
     }
 
-    // --- Spear/axe/pick contra animales y enemigos ---
+    // --- Ataques contra vida salvaje / enemigos ---
     const reach=18;
     const hitMelee = (ox,oy, radius, arr, onKill)=>{
       for (let i=arr.length-1;i>=0;i--){
@@ -646,7 +569,7 @@
         player.wood-=3; player.stone-=1;
         const px=player.x+player.facing.x*10, py=player.y+player.facing.y*10;
         campfires.push({x:px,y:py,r:50,life:120});
-        try{ASSETS.s_craft.currentTime=0; ASSETS.s_craft.play();}catch(e){}
+        try{ASSETS.s_craft.currentTime=0; ASSETS.s_craft.play();}catch{};
         announce('Fogata creada'); updateMissions(); updateInvUI(); saveLS();
       } else toast('3 madera + 1 piedra');
       setTimeout(()=>{ tick.craftLatch=false; }, 200);
@@ -660,28 +583,28 @@
     if (type==='wall'){ if (player.wood<2) return toast('Pared: 2 madera'); player.wood-=2; }
     else if (type==='floor'){ if (player.wood<1) return toast('Piso: 1 madera'); player.wood-=1; }
     else if (type==='roof'){ if (player.wood<1||player.stone<1) return toast('Techo: 1 madera + 1 piedra'); player.wood-=1; player.stone-=1; }
-    else if (type==='door'){ if (player.wood<2||player.stone<1) return toast('Puerta: 2 madera + 1 piedra'); player.wood-=2; player.stone-=1; buildings.push({type:'door',x:gx,y:gy,rot:0,open:false}); try{ASSETS.s_craft.play();}catch(e){}; updateMissions(); updateInvUI(); saveLS(); return; }
-    else if (type==='trap'){ if (player.wood<2||player.stone<1) return toast('Trampa: 2 madera + 1 piedra'); player.wood-=2; player.stone-=1; buildings.push({type:'trap',x:gx,y:gy,rot:0,armed:true}); try{ASSETS.s_craft.play();}catch(e){}; updateInvUI(); saveLS(); return; }
+    else if (type==='door'){ if (player.wood<2||player.stone<1) return toast('Puerta: 2 madera + 1 piedra'); player.wood-=2; player.stone-=1; buildings.push({type:'door',x:gx,y:gy,rot:0,open:false}); try{ASSETS.s_craft.play();}catch{}; updateMissions(); updateInvUI(); saveLS(); return; }
+    else if (type==='trap'){ if (player.wood<2||player.stone<1) return toast('Trampa: 2 madera + 1 piedra'); player.wood-=2; player.stone-=1; buildings.push({type:'trap',x:gx,y:gy,rot:0,armed:true}); try{ASSETS.s_craft.play();}catch{}; updateInvUI(); saveLS(); return; }
     else if (type==='shelter'){
       if (player.wood<6 || player.stone<2) return toast('Refugio: 6 madera + 2 piedra');
       player.wood -= 6; player.stone -= 2;
       buildings.push({type:'shelter', x:gx, y:gy, rot:0});
-      try{ASSETS.s_craft.play();}catch(e){}; updateInvUI(); saveLS(); return;
+      try{ASSETS.s_craft.play();}catch{}; updateInvUI(); saveLS(); return;
     }
     else if (type==='workbench'){
       if (player.wood<4 || player.stone<2) return toast('Mesa: 4 madera + 2 piedra');
       player.wood-=4; player.stone-=2;
       buildings.push({type:'workbench', x:gx, y:gy, rot:0});
-      try{ASSETS.s_craft.play();}catch(e){}; updateInvUI(); saveLS(); return;
+      try{ASSETS.s_craft.play();}catch{}; updateInvUI(); saveLS(); return; // <- ; después de catch
     }
     else if (type==='furnace'){
       if (player.stone<8) return toast('Horno: 8 piedra');
       player.stone-=8;
       buildings.push({type:'furnace', x:gx, y:gy, rot:0});
-      try{ASSETS.s_craft.play();}catch(e){}; updateInvUI(); saveLS(); return;
+      try{ASSETS.s_craft.play();}catch{}; updateInvUI(); saveLS(); return; // <- ; después de catch
     }
     buildings.push({type,x:gx,y:gy,rot:build.rot%4});
-    try{ASSETS.s_craft.currentTime=0; ASSETS.s_craft.play();}catch(e){}
+    try{ASSETS.s_craft.currentTime=0; ASSETS.s_craft.play();}catch{};
     updateInvUI(); saveLS();
   }
 
@@ -712,37 +635,38 @@
   }
 
   let stepTimer=0;
+
+  // offsets para herramientas en mano, por dirección (en píxeles world no escalados)
+  const EQUIP_OFF = {
+    right:{x: 6,  y: 0},
+    left: {x:-12, y: 0},
+    up:   {x: -2, y:-6},
+    down: {x:  2, y: 6}
+  };
+
   function tick(){
     const now=performance.now(); let dt=(now-last)/1000; last=now; if (dt>0.05) dt=0.05;
 
     // CLIMA
     updateWeather(dt);
 
-    // Input vector (teclado + joystick suave)
-    updateJoystick(dt);
-
-    let ix = 0, iy = 0;
-
-    // Teclado
-    if (keys.has('w')) iy -= 1;
-    if (keys.has('s')) iy += 1;
-    if (keys.has('a')) ix -= 1;
-    if (keys.has('d')) ix += 1;
-
-    // Normaliza teclado si hace diagonal
-    const km = Math.hypot(ix,iy) || 1; ix/=km; iy/=km;
-
-    // Joystick prioriza si está activo/suavizando
-    if (Math.hypot(JOY.sx, JOY.sy) > 0.001){
-      ix = JOY.sx; iy = JOY.sy;
+    // Input vector
+    let ix=0, iy=0;
+    if (keys.has('w')) { iy-=1; player.dirName='up'; }
+    if (keys.has('s')) { iy+=1; player.dirName='down'; }
+    if (keys.has('a')) { ix-=1; player.dirName='left'; }
+    if (keys.has('d')) { ix+=1; player.dirName='right'; }
+    if (joyState.active){
+      const dx = joyState.x - (document.getElementById('joy').clientWidth)/2;
+      const dy = joyState.y - (document.getElementById('joy').clientHeight)/2;
+      ix = dx/56; iy = dy/56;
+      const mag = Math.hypot(ix,iy);
+      if (mag < 0.18){ ix=0; iy=0; } else { ix/=mag; iy/=mag; }
+      if (Math.abs(ix) > Math.abs(iy)) player.dirName = (ix>0?'right':'left');
+      else if (Math.abs(iy) > 0.05) player.dirName = (iy>0?'down':'up');
     }
-
-    // Dirección del sprite según input final
-    if (Math.abs(ix) > Math.abs(iy)) player.dirName = (ix>0?'right':'left');
-    else if (Math.abs(iy) > 0.05)    player.dirName = (iy>0?'down':'up');
-
-    // Actualiza hacia dónde “mira”
-    const ldir=Math.hypot(ix,iy)||1; player.facing = {x:ix/ldir, y:iy/ldir};
+    const l=Math.hypot(ix,iy)||1; ix/=l; iy/=l;
+    if (ix||iy) player.facing={x:ix,y:iy};
 
     const inWater = circleRectCollide(player.x, player.y, player.r, water.x, water.y, water.w, water.h);
     const baseMod = Math.max(0.6, Math.min(1.1, (player.energy/100)*1.0));
@@ -762,7 +686,7 @@
     }
 
     stepTimer -= dt;
-    if ((ix||iy) && !inWater && stepTimer<=0){ try{ASSETS.s_step.currentTime=0; ASSETS.s_step.play();}catch(e){} stepTimer = 0.35/baseMod; }
+    if ((ix||iy) && !inWater && stepTimer<=0){ try{ASSETS.s_step.currentTime=0; ASSETS.s_step.play();}catch{} stepTimer = 0.35/baseMod; }
 
     // bounds
     player.x = clamp(player.x, 8, WORLD.w-8);
@@ -788,8 +712,8 @@
     if (player.invuln>0) player.invuln -= dt;
 
     // pickups sueltos
-    for (let i=rocks.length-1;i>=0;i--){ const r=rocks[i]; if (Math.hypot(player.x-r.x, player.y-r.y) < player.r + r.r){ player.stone++; rocks.splice(i,1); try{ASSETS.s_pickup.currentTime=0; ASSETS.s_pickup.play();}catch(e){} toast('Piedra +1'); updateInvUI(); saveLS(); } }
-    for (let i=woods.length-1;i>=0;i--){ const w=woods[i]; if (Math.hypot(player.x-w.x, player.y-w.y) < player.r + w.r){ player.wood++; woods.splice(i,1); try{ASSETS.s_pickup.currentTime=0; ASSETS.s_pickup.play();}catch(e){} toast('Madera +1'); updateInvUI(); saveLS(); } }
+    for (let i=rocks.length-1;i>=0;i--){ const r=rocks[i]; if (Math.hypot(player.x-r.x, player.y-r.y) < player.r + r.r){ player.stone++; rocks.splice(i,1); try{ASSETS.s_pickup.currentTime=0; ASSETS.s_pickup.play();}catch{} toast('Piedra +1'); updateInvUI(); saveLS(); } }
+    for (let i=woods.length-1;i>=0;i--){ const w=woods[i]; if (Math.hypot(player.x-w.x, player.y-w.y) < player.r + w.r){ player.wood++; woods.splice(i,1); try{ASSETS.s_pickup.currentTime=0; ASSETS.s_pickup.play();}catch{} toast('Madera +1'); updateInvUI(); saveLS(); } }
 
     // acción click/touch
     if (mouseDown){
@@ -911,66 +835,6 @@
     ctx.globalAlpha=1.0;
   }
 
-  // === DIBUJO EQUIPO / BARCO ===
-  function facingAngle(){
-    // ángulo a partir de vector facing (radianes)
-    return Math.atan2(player.facing.y, player.facing.x);
-  }
-  function drawBoatUnder(px, py){
-    const ang = 0; // barquito horizontal
-    const w = 22, h = 10; // en px a escala base
-    const gx = Math.floor(px*SCALE), gy = Math.floor(py*SCALE);
-    ctx.save();
-    ctx.translate(gx, gy + 6*SCALE); // un poco abajo del centro
-    ctx.rotate(ang);
-    if (ASSETS.boat && ASSETS.boat.width){
-      ctx.drawImage(ASSETS.boat, (-w/2)*SCALE, (-h/2)*SCALE, w*SCALE, h*SCALE);
-    } else {
-      // fallback simple
-      ctx.fillStyle = '#704b2a';
-      ctx.fillRect((-w/2)*SCALE, (-h/2)*SCALE, w*SCALE, h*SCALE);
-      ctx.strokeStyle = '#3a2715';
-      ctx.lineWidth = 2;
-      ctx.strokeRect((-w/2)*SCALE, (-h/2)*SCALE, w*SCALE, h*SCALE);
-    }
-    ctx.restore();
-  }
-  function drawEquippedOver(px, py){
-    const ang = facingAngle();
-    const centerX = Math.floor(px*SCALE);
-    const centerY = Math.floor(py*SCALE);
-
-    // offset delante del jugador
-    const offset = 6; // base pixels
-    const ox = Math.cos(ang) * offset;
-    const oy = Math.sin(ang) * offset;
-
-    // dibuja arma/herramienta si equipada (prioridad: arco > lanza > hacha > pico)
-    if (player.bowEquipped && player.bowOwned){
-      drawItemSprite(ASSETS.bow, centerX+ox*SCALE, centerY+oy*SCALE, ang, 12, 6, '#8b5a2b');
-    } else if (player.spearEquipped && player.spearOwned){
-      drawItemSprite(ASSETS.spear, centerX+ox*SCALE, centerY+oy*SCALE, ang, 16, 3, '#c0a060');
-    } else if (player.axeEquipped && player.axeOwned){
-      drawItemSprite(ASSETS.axe, centerX+ox*SCALE, centerY+oy*SCALE, ang, 12, 6, '#7a7a7a');
-    } else if (player.pickEquipped && player.pickOwned){
-      drawItemSprite(ASSETS.pick, centerX+ox*SCALE, centerY+oy*SCALE, ang, 12, 6, '#7a7a7a');
-    }
-  }
-  function drawItemSprite(img, cx, cy, ang, w, h, fallbackColor){
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(ang);
-    if (img && img.width){
-      ctx.drawImage(img, (-w/2)*SCALE, (-h/2)*SCALE, w*SCALE, h*SCALE);
-    } else {
-      // fallback geométrico
-      ctx.fillStyle=fallbackColor||'#ddd';
-      ctx.fillRect((-w/2)*SCALE, (-h/2)*SCALE, w*SCALE, h*SCALE);
-      ctx.strokeStyle='#222'; ctx.lineWidth=2; ctx.strokeRect((-w/2)*SCALE, (-h/2)*SCALE, w*SCALE, h*SCALE);
-    }
-    ctx.restore();
-  }
-
   function render(inWater){
     ctx.fillStyle = '#0b1320'; ctx.fillRect(0,0,cvs.width,cvs.height);
     tile(ASSETS.grass, - (cam.x % 16), - (cam.y % 16), W+16, H+16);
@@ -984,11 +848,11 @@
     for (let y=0; y<water.h; y+=16){ ctx.drawImage(shoreFrame, (water.x - 8 - cam.x)*SCALE, (water.y + y - cam.y)*SCALE, 16*SCALE, 16*SCALE); ctx.drawImage(shoreFrame, (water.x + water.w - 8 - cam.x)*SCALE, (water.y + y - cam.y)*SCALE, 16*SCALE, 16*SCALE); }
 
     // árboles y pickups
-    for (const t of trees){ const x=Math.floor(t.x - cam.x), y=Math.floor(t.y - cam.y); ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect((x-8)*SCALE, (y+6)*SCALE, 16*SCALE, 4*SCALE); ctx.drawImage(ASSETS.tree, (x-16)*SCALE, (y-24)*SCALE, ASSETS.tree.width*SCALE, ASSETS.tree.height*SCALE); }
+    for (const t of trees){ const x=Math.floor(t.x - cam.x), y=Math.floor(t.y - cam.y); ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect((x-8)*SCALE, (y+6)*SCALE, 16*SCALE, 4*SCALE); ctx.drawImage(ASSETS.tree, (x-8)*SCALE, (y-24)*SCALE, 16*SCALE, 24*SCALE); }
     for (const r of rocks){ const x=Math.floor(r.x - cam.x), y=Math.floor(r.y - cam.y); ctx.drawImage(ASSETS.rock, (x-8)*SCALE, (y-8)*SCALE, 16*SCALE, 16*SCALE); }
     for (const w of woods){ const x=Math.floor(w.x - cam.x), y=Math.floor(w.y - cam.y); ctx.drawImage(ASSETS.wood, (x-8)*SCALE, (y-8)*SCALE, 16*SCALE, 16*SCALE); }
 
-    // fogatas
+    // fogatas (sprite + halo)
     for (const f of campfires){ const x=Math.floor(f.x - cam.x), y=Math.floor(f.y - cam.y);
       ctx.fillStyle='rgba(255,150,40,0.18)'; ctx.beginPath(); ctx.arc(x*SCALE, y*SCALE, 32*SCALE, 0, Math.PI*2); ctx.fill();
       ctx.drawImage(ASSETS.campfire, (x-8)*SCALE, (y-8)*SCALE, 16*SCALE, 16*SCALE);
@@ -1024,22 +888,28 @@
       ctx.fillStyle='#5a3d1e'; ctx.fillRect((x-2)*SCALE, (y-9)*SCALE, 4*SCALE, 3*SCALE);
     }
 
-    // jugador + barco debajo si corresponde
+    // jugador + barco (si corresponde)
     const px=Math.floor(player.x - cam.x), py=Math.floor(player.y - cam.y);
 
-    if (player.boatEquipped && inWater){
-      drawBoatUnder(px, py);
+    if (player.boatEquipped && inWater && ASSETS.eq.boat){
+      const bw = ASSETS.eq.boat.width, bh = ASSETS.eq.boat.height;
+      ctx.drawImage(ASSETS.eq.boat, (px - Math.floor(bw/2))*SCALE, (py - Math.floor(bh/2)+4)*SCALE, bw*SCALE, bh*SCALE);
     }
 
-    // sombra del jugador
     ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect((px-8)*SCALE, (py+6)*SCALE, 16*SCALE, 4*SCALE);
-
-    // jugador
     const frame = ASSETS.player[player.dirName][player.animFrame||0] || ASSETS.player.right[0];
     ctx.drawImage(frame, (px-8)*SCALE, (py-12)*SCALE, 16*SCALE, 16*SCALE);
 
-    // equipo por encima del jugador
-    drawEquippedOver(px, py);
+    // herramienta equipada (overlay)
+    let toolImg = null;
+    if (player.spearEquipped) toolImg = ASSETS.eq.spear;
+    else if (player.bowEquipped) toolImg = ASSETS.eq.bow;
+    else if (player.axeEquipped) toolImg = ASSETS.eq.axe;
+    else if (player.pickEquipped) toolImg = ASSETS.eq.pick;
+    if (toolImg){
+      const off = EQUIP_OFF[player.dirName] || {x:0,y:0};
+      ctx.drawImage(toolImg, (px + off.x)*SCALE, (py + off.y)*SCALE, toolImg.width*SCALE, toolImg.height*SCALE);
+    }
 
     // flechas
     ctx.fillStyle='#ffd166';
@@ -1050,31 +920,35 @@
     // Lluvia
     drawRain();
 
-    // NOCHE + ILUMINACIÓN
+    // NOCHE + ILUMINACIÓN (pixelada)
     let nightAlpha = 0;
     if (timeOfDay >= 19) nightAlpha = Math.min(0.65, (timeOfDay - 19) / 3);
     else if (timeOfDay <= 5) nightAlpha = Math.min(0.65, (5 - timeOfDay) / 3);
 
     if (nightAlpha > 0){
+      // 1) Oscuridad en buffer base
       lightCtx.clearRect(0,0,W,H);
       lightCtx.globalCompositeOperation = 'source-over';
       lightCtx.fillStyle = `rgba(0,0,20,${nightAlpha})`;
       lightCtx.fillRect(0,0,W,H);
 
+      // 2) Recortar luces (destination-out)
       lightCtx.globalCompositeOperation = 'destination-out';
 
-      // Luz jugador
+      // Jugador (menos intensa)
       pixelLight(lightCtx, px, py, 46, [0.55, 0.30, 0.12]);
 
-      // Fogatas
+      // Fogatas (más amplia)
       for (const f of campfires){
         const fx = Math.floor(f.x - cam.x);
         const fy = Math.floor(f.y - cam.y);
         pixelLight(lightCtx, fx, fy, 88, [1.0, 0.85, 0.55, 0.3, 0.16]);
       }
 
+      // 3) Componer al canvas escalado sin suavizado
       ctx.drawImage(lightCvs, 0, 0, W, H, 0, 0, W*SCALE, H*SCALE);
 
+      // 4) Brillo cálido aditivo pixelado en fogatas
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       for (const f of campfires){
@@ -1168,7 +1042,7 @@
     mctx.fillStyle='#2c8a2e'; for (let i=0;i<trees.length;i+=3){ const t=trees[i]; const x=t.x/WORLD.w*mw, y=t.y/WORLD.h*mh; mctx.fillRect(x-1,y-1,2,2); }
     mctx.fillStyle='#ffa726'; for (const f of campfires){ const x=f.x/WORLD.w*mw, y=f.y/WORLD.h*mh; mctx.fillRect(x-1,y-1,2,2); }
     mctx.fillStyle='#e0e0e0'; mctx.fillRect(player.x/WORLD.w*mw-2, player.y/WORLD.h*mh-2, 4,4);
-    mctx.strokeStyle='#9eb1ff'; mctx.lineWidth=1; 
+    mctx.strokeStyle='#9eb1ff'; mctx.lineWidth=1;
     mctx.strokeRect(cam.x/WORLD.w*mw, cam.y/WORLD.h*mh, W/WORLD.w*mw, H/WORLD.h*mh);
   }
 

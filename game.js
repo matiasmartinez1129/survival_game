@@ -4,6 +4,16 @@
   const ctx = cvs.getContext('2d');
   let W = 320, H = 180, SCALE = 4;
 
+  // --- Buffer de luz a resolución base (pixel art) ---
+  let lightCvs = document.createElement('canvas');
+  let lightCtx = lightCvs.getContext('2d');
+
+  function setupLightBuffer(){
+    lightCvs.width = W;
+    lightCvs.height = H;
+    lightCtx.imageSmoothingEnabled = false;
+  }
+
   function resize() {
     const w = window.innerWidth, h = window.innerHeight;
     const target = Math.min(Math.floor(w/320), Math.floor(h/180));
@@ -12,19 +22,9 @@
     cvs.width = W*SCALE;
     cvs.height = H*SCALE;
     ctx.imageSmoothingEnabled = false;
-    setupLightBuffer(); // recrea buffer con W/H base
+    setupLightBuffer();
   }
-  addEventListener('resize', resize);
-
-  // --- Buffer de luz a resolución base (pixel art) ---
-  let lightCvs = document.createElement('canvas');
-  let lightCtx = lightCvs.getContext('2d');
-  function setupLightBuffer(){
-    lightCvs.width = W;
-    lightCvs.height = H;
-    lightCtx.imageSmoothingEnabled = false;
-  }
-
+  addEventListener('resize', resize, {passive:true});
   resize(); // inicial
 
   // ---- Utils ----
@@ -55,9 +55,11 @@
   };
 
   // ---- Assets ----
-  const ASSETS = {
+  const ASSETS = { 
     player:{down:[],left:[],right:[],up:[]},
-    eq:{spear:null,bow:null,axe:null,pick:null,boat:null},
+    // sprites de equipo/vehículo
+    eq_spear:null, eq_bow:null, eq_axe:null, eq_pick:null, boat:null,
+    // mundo
     tree:null, rock:null, wood:null, campfire:null, grass:null, sand:null, rock_tile:null, water:null, shore:[],
     crab:[], deer:[], fish:[],
     wall:null, floor:null, roof:null,
@@ -66,12 +68,13 @@
 
   Promise.all([
     ...['down','left','right','up'].flatMap(dn => [0,1,2].map(f => loadImage(`assets/player_${dn}_${f}.png`).then(i=>ASSETS.player[dn][f]=i))),
-    loadImage('assets/eq_spear.png').then(i=>ASSETS.eq.spear=i),
-    loadImage('assets/eq_bow.png').then(i=>ASSETS.eq.bow=i),
-    loadImage('assets/eq_axe.png').then(i=>ASSETS.eq.axe=i),
-    loadImage('assets/eq_pick.png').then(i=>ASSETS.eq.pick=i),
-    loadImage('assets/boat.png').then(i=>ASSETS.eq.boat=i),
-
+    // overlays de equipo
+    loadImage('assets/eq_spear.png').then(i=>ASSETS.eq_spear=i),
+    loadImage('assets/eq_bow.png').then(i=>ASSETS.eq_bow=i),
+    loadImage('assets/eq_axe.png').then(i=>ASSETS.eq_axe=i),
+    loadImage('assets/eq_pick.png').then(i=>ASSETS.eq_pick=i),
+    loadImage('assets/boat.png').then(i=>ASSETS.boat=i),
+    // mundo
     loadImage('assets/tree.png').then(i=>ASSETS.tree=i),
     loadImage('assets/rock.png').then(i=>ASSETS.rock=i),
     loadImage('assets/wood.png').then(i=>ASSETS.wood=i),
@@ -113,7 +116,7 @@
     { x: 360, y: 320, name:'Amigo', talked:false, quest:{need:5, done:false, rewarded:false} }
   ];
 
-  // Generación: más árboles y rocas
+  // Generación: algo más denso
   for (let i=0;i<160;i++){
     const t={x:80+rng()*(WORLD.w-160), y:80+rng()*(WORLD.h-160)};
     if (t.x>water.x-40 && t.x<water.x+water.w+40 && t.y>water.y-40 && t.y<water.y+water.h+40){ i--; continue; }
@@ -153,34 +156,117 @@
 
   // ---- Input ----
   const keys = new Set();
-  onkeydown = e => {
+  addEventListener('keydown', e => {
     const k=e.key.toLowerCase(); keys.add(k);
     if (['s','l','c','i','b','escape'].includes(k)) e.preventDefault();
     if (k==='i') toggleInventory();
     if (k==='b') toggleBuild();
     if (k==='escape'){ closePanels(); }
+  }, {passive:false});
+  addEventListener('keyup', e => { keys.delete(e.key.toLowerCase()); }, {passive:true});
+
+  // ---- Mobile joystick mejorado ----
+  const joy = document.getElementById('joy');
+  const stick = joy ? joy.querySelector('.stick') : null;
+  const btnA = document.getElementById('btnA');
+  const btnRun = document.getElementById('btnRun');
+  const btnInv = document.getElementById('btnInv');
+  const btnBuild = document.getElementById('btnBuild');
+  const btnFire = document.getElementById('btnFire');
+  const btnDoor = document.getElementById('btnDoor');
+  const btnMis = document.getElementById('btnMis');
+  const btnFS = document.getElementById('btnFS');
+
+  const JOYCFG = { radius:56, dead:0.12, follow:0.35, smooth:0.28 };
+  const joyState = {
+    active:false, id:null,
+    cx:64, cy:64,   // centro actual dentro del #joy (se usa para "follow")
+    ox:64, oy:64,   // centro original del toque
+    px:64, py:64,   // posición del pulgar
+    vx:0,  vy:0,    // vector suavizado
+    mag:0
   };
-  onkeyup   = e => { keys.delete(e.key.toLowerCase()); };
+  // centrar visualmente
+  function joyVisual(px,py){ if(!stick) return; stick.style.left = (px-32)+'px'; stick.style.top=(py-32)+'px'; }
+  function joyCenter(){ joyState.cx=64; joyState.cy=64; joyState.px=64; joyState.py=64; joyState.vx=0; joyState.vy=0; joyState.mag=0; joyVisual(64,64); }
 
-  // ---- Mobile controls ----
-  const joyState = {active:false, id:null, ox:0, oy:0, x:0, y:0};
+  if (joy && stick){
+    joyCenter();
+    // Iniciar: permitimos tocar en cualquier parte del joystick.
+    joy.addEventListener('pointerdown', e=>{
+      joy.setPointerCapture(e.pointerId);
+      const r=joy.getBoundingClientRect();
+      joyState.active=true; joyState.id=e.pointerId;
+      joyState.cx = joyState.ox = (e.clientX - r.left);
+      joyState.cy = joyState.oy = (e.clientY - r.top);
+      joyState.px = joyState.cx; joyState.py = joyState.cy;
+      joyVisual(joyState.px, joyState.py);
+      e.preventDefault();
+    }, {passive:false});
+
+    joy.addEventListener('pointermove', e=>{
+      if(!joyState.active || e.pointerId!==joyState.id) return;
+      const r=joy.getBoundingClientRect();
+      const x = (e.clientX - r.left), y = (e.clientY - r.top);
+      // vector desde centro actual
+      let dx = x - joyState.cx, dy = y - joyState.cy;
+      const dist = Math.hypot(dx,dy);
+      const max = JOYCFG.radius;
+
+      // deadzone
+      let nx = 0, ny = 0, mag = 0;
+      if (dist > max*JOYCFG.dead){
+        const cl = Math.min(dist, max);
+        nx = dx / dist; ny = dy / dist;
+        joyState.px = joyState.cx + nx*cl;
+        joyState.py = joyState.cy + ny*cl;
+        mag = (cl - max*JOYCFG.dead) / (max - max*JOYCFG.dead);
+      } else {
+        joyState.px = joyState.cx; joyState.py = joyState.cy;
+        nx = 0; ny = 0; mag = 0;
+      }
+
+      // modo "follow": si te vas mucho, movemos el centro hacia el dedo para que no se trabe
+      if (dist > max){
+        const fx = (x - joyState.cx) * JOYCFG.follow;
+        const fy = (y - joyState.cy) * JOYCFG.follow;
+        joyState.cx += fx;
+        joyState.cy += fy;
+        // recomputar pos del stick
+        const dx2 = x - joyState.cx, dy2 = y - joyState.cy;
+        const d2 = Math.hypot(dx2,dy2) || 1;
+        const cl2 = Math.min(d2, max);
+        joyState.px = joyState.cx + dx2/d2 * cl2;
+        joyState.py = joyState.cy + dy2/d2 * cl2;
+        nx = dx2/d2; ny = dy2/d2;
+        mag = (cl2 - max*JOYCFG.dead) / (max - max*JOYCFG.dead);
+      }
+
+      // suavizado (low-pass)
+      joyState.vx = joyState.vx*(1-JOYCFG.smooth) + (nx*mag)*JOYCFG.smooth;
+      joyState.vy = joyState.vy*(1-JOYCFG.smooth) + (ny*mag)*JOYCFG.smooth;
+      joyState.mag = Math.hypot(joyState.vx, joyState.vy);
+
+      joyVisual(joyState.px, joyState.py);
+      e.preventDefault();
+    }, {passive:false});
+
+    function joyUp(e){
+      joyState.active=false; joyState.id=null;
+      // desvanecer al centro de forma rápida:
+      joyCenter();
+    }
+    joy.addEventListener('pointerup', e=>{ if(e.pointerId===joyState.id) joyUp(e); }, {passive:false});
+    joy.addEventListener('pointercancel', e=>{ if(e.pointerId===joyState.id) joyUp(e); }, {passive:true});
+  }
+
   let runTouch = false;
-
-  const joy = document.getElementById('joy'); const stick = joy.querySelector('.stick');
-  const btnA = document.getElementById('btnA'); const btnRun = document.getElementById('btnRun');
-  const btnInv = document.getElementById('btnInv'); const btnBuild = document.getElementById('btnBuild');
-  const btnFire = document.getElementById('btnFire'); const btnDoor = document.getElementById('btnDoor');
-  const btnMis = document.getElementById('btnMis'); const btnFS = document.getElementById('btnFS');
-
-  function joyCenter(){ stick.style.left='50%'; stick.style.top='50%'; stick.style.marginLeft='-32px'; stick.style.marginTop='-32px'; }
-  joyCenter();
-  // más suave: normalización + zona muerta + clamp
-  joy.addEventListener('pointerdown', (e)=>{ joy.setPointerCapture(e.pointerId); const r=joy.getBoundingClientRect(); joyState.active=true; joyState.id=e.pointerId; joyState.ox=e.clientX-r.left; joyState.oy=e.clientY-r.top; joyState.x=joyState.ox; joyState.y=joyState.oy; stick.style.left=joyState.x+'px'; stick.style.top=joyState.y+'px'; stick.style.marginLeft='-32px'; stick.style.marginTop='-32px'; e.preventDefault(); }, {passive:false});
-  joy.addEventListener('pointermove', (e)=>{ if(!joyState.active||e.pointerId!==joyState.id) return; const r=joy.getBoundingClientRect(); joyState.x=Math.max(0,Math.min(joy.clientWidth,e.clientX-r.left)); joyState.y=Math.max(0,Math.min(joy.clientHeight,e.clientY-r.top)); const dx=joyState.x-joy.clientWidth/2, dy=joyState.y-joy.clientHeight/2; const max=56, dead=0.15*max; const mag=Math.hypot(dx,dy); let nx=0, ny=0; if (mag>dead){ const f=(mag-dead)/(max-dead); nx = (dx/mag)*f*max; ny = (dy/mag)*f*max; } stick.style.left=(joy.clientWidth/2+nx)+'px'; stick.style.top =(joy.clientHeight/2+ny)+'px'; stick.style.marginLeft='-32px'; stick.style.marginTop='-32px'; e.preventDefault(); }, {passive:false});
-  function joyUp(){ joyState.active=false; joyState.id=null; joyCenter(); }
-  joy.addEventListener('pointerup', (e)=>{ if(e.pointerId===joyState.id) joyUp(); }, {passive:false}); joy.addEventListener('pointercancel', ()=>joyUp(), {passive:true});
-
-  function btnPress(el, down, up){ el.addEventListener('pointerdown', e=>{ down(); e.preventDefault(); }, {passive:false}); if (up) el.addEventListener('pointerup', e=>{ up(); e.preventDefault(); }, {passive:false}); el.addEventListener('pointerleave', ()=>{ up&&up(); }, {passive:true}); }
+  function btnPress(el, down, up){
+    if(!el) return;
+    el.addEventListener('pointerdown', e=>{ down&&down(); e.preventDefault(); }, {passive:false});
+    if (up) el.addEventListener('pointerup', e=>{ up(); e.preventDefault(); }, {passive:false});
+    el.addEventListener('pointerleave', ()=>{ up&&up(); }, {passive:true});
+  }
   btnPress(btnA, ()=>{ if (build.mode) { tryBuild(); } else if (!interactNPC()) { if (!shootArrow()) tryAttack(); } });
   btnPress(btnRun, ()=>{ runTouch=true; }, ()=>{ runTouch=false; });
   btnPress(btnInv, ()=>{ toggleInventory(); });
@@ -188,7 +274,7 @@
   btnPress(btnFire, ()=>{ craftFire(); });
   btnPress(btnDoor, ()=>{ tryToggleDoor(); });
   btnPress(btnMis,  ()=>{ toggleMissions(); });
-  btnFS.addEventListener('click', async ()=>{ try{ await document.body.requestFullscreen(); }catch{} });
+  if (btnFS) btnFS.addEventListener('click', async ()=>{ try{ await document.body.requestFullscreen(); }catch{} }, {passive:true});
 
   // ---- Overlay helpers
   const invDiv = document.getElementById('inventory');
@@ -214,8 +300,8 @@
   }
   function toggleInventory(){ invDiv.classList.toggle('hidden'); updateInvUI(); updateOverlayState(); }
   function toggleBuild(){ buildDiv.classList.toggle('hidden'); build.mode = !build.mode; updateOverlayState(); }
-  invDiv.addEventListener('click', (e)=>{ if(e.target===invDiv){ invDiv.classList.add('hidden'); updateOverlayState(); } });
-  buildDiv.addEventListener('click', (e)=>{ if(e.target===buildDiv){ buildDiv.classList.add('hidden'); build.mode=false; updateOverlayState(); } });
+  invDiv.addEventListener('click', (e)=>{ if(e.target===invDiv){ invDiv.classList.add('hidden'); updateOverlayState(); } }, {passive:true});
+  buildDiv.addEventListener('click', (e)=>{ if(e.target===buildDiv){ buildDiv.classList.add('hidden'); build.mode=false; updateOverlayState(); } }, {passive:true});
   const btnExitBuild = document.getElementById('btnExitBuild');
   if (btnExitBuild) btnExitBuild.onclick = ()=> { buildDiv.classList.add('hidden'); build.mode=false; updateOverlayState(); };
 
@@ -226,9 +312,9 @@
     updateOverlayState();
   }
   function hideDialog(){ dialog.classList.add('hidden'); dialog.classList.remove('show'); updateOverlayState(); }
-  dialogClose.addEventListener('click', hideDialog);
-  dialog.addEventListener('click', (e)=>{ if(e.target===dialog) hideDialog(); });
-  addEventListener('keydown', (e)=>{ if (e.key==='Escape') hideDialog(); });
+  if (dialogClose) dialogClose.addEventListener('click', hideDialog, {passive:true});
+  if (dialog) dialog.addEventListener('click', (e)=>{ if(e.target===dialog) hideDialog(); }, {passive:true});
+  addEventListener('keydown', (e)=>{ if (e.key==='Escape') hideDialog(); }, {passive:true});
 
   // ---- Inventory UI ----
   function $(id){ return document.getElementById(id); }
@@ -249,7 +335,7 @@
     t('equipBoatTile',  player.boatEquipped);
   }
 
-  // Botones inventario / equipar
+  // Botones inventario (costos)
   $('btnEquipSpear').onclick = ()=>{ if (!player.spearOwned) return toast('Primero crafteá la lanza.'); player.spearEquipped=!player.spearEquipped; if (player.spearEquipped){ player.bowEquipped=false; player.axeEquipped=false; player.pickEquipped=false; } updateInvUI(); saveLS(); };
   $('btnCraftSpear').onclick = ()=>{ if (player.wood>=1){ player.wood-=1; player.spearOwned=true; player.spearDur=40; try{ASSETS.s_craft.play();}catch{}; announce('Lanza creada'); updateInvUI(); updateMissions(); saveLS(); } else toast('1 madera'); };
   $('btnCraftBow').onclick = ()=>{ if (player.wood>=2){ player.wood-=2; player.bowOwned=true; player.bowDur=60; try{ASSETS.s_craft.play();}catch{}; announce('Arco creado'); updateInvUI(); updateMissions(); saveLS(); } else toast('2 madera'); };
@@ -267,7 +353,7 @@
   if (eqP) eqP.onclick = ()=>{ if (!player.pickOwned) return toast('No tenés pico.'); player.pickEquipped=!player.pickEquipped; if (player.pickEquipped){ player.spearEquipped=false; player.bowEquipped=false; player.axeEquipped=false; } updateInvUI(); saveLS(); };
 
   // Herramientas (requiere mesa cerca)
-  function nearWorkbench(){ for (const b of buildings){ if (b.type==='workbench' && Math.hypot(player.x-b.x, player.y-b.y) < 28) return true; } return false; }
+  function nearWorkbench(){ for (const b of buildings){ if (b.type==='workbench' && Math.hypot(player.x-b.x, player.y-b.y) < 22) return true; } return false; }
   $('btnCraftAxe').onclick = ()=> {
     if (!nearWorkbench()) return announce('Acercate a una mesa de crafteo');
     if (player.wood>=1 && player.stone>=1){
@@ -296,17 +382,19 @@
 
   // ---- Export/Import ----
   $('btnExport').onclick = ()=>{ const data = collectSaveData(); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'})); a.download='survival2d_mobile_save.json'; a.click(); URL.revokeObjectURL(a.href); };
-  $('fileImport').addEventListener('change', (e)=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ try{ applySaveData(JSON.parse(rd.result)); toast('Guardado importado.'); updateInvUI(); }catch{ toast('Archivo inválido'); } }; rd.readAsText(f); });
+  $('fileImport').addEventListener('change', (e)=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ try{ applySaveData(JSON.parse(rd.result)); toast('Guardado importado.'); updateInvUI(); }catch{ toast('Archivo inválido'); } }; rd.readAsText(f); }, {passive:true});
 
   // ---- Build system ----
-  for (const btn of buildDiv.querySelectorAll('[data-build]')){ btn.onclick = ()=> { build.current = btn.getAttribute('data-build'); }; }
-  addEventListener('wheel', e => { if (build.mode){ build.rot += Math.sign(e.deltaY); } });
+  for (const btn of buildDiv.querySelectorAll('[data-build]')){
+    btn.onclick = ()=> { build.current = btn.getAttribute('data-build'); };
+  }
+  addEventListener('wheel', e => { if (build.mode){ build.rot += Math.sign(e.deltaY); } }, {passive:true});
 
   // ---- Save/Load ----
-  function collectSaveData(){
+  function collectSaveData(){ 
     return { player, campfires, rocks, woods, crabs, deers, fishs, buildings, timeOfDay, day, npcs, missions, regrow };
   }
-  function applySaveData(data){
+  function applySaveData(data){ 
     Object.assign(player, data.player||{});
     campfires.length=0; data.campfires?.forEach(o=>campfires.push(o));
     rocks.length=0; data.rocks?.forEach(o=>rocks.push(o));
@@ -374,14 +462,14 @@
       // Cerrar tocando fuera
       root.addEventListener('click', (e)=>{ if (e.target===root){ root.classList.add('hidden'); updateOverlayState(); } }, {passive:true});
 
-      // Botón cerrar (fix mobile + desktop)
+      // Botón cerrar: mobile + desktop
       const closeMis = (e)=>{ e?.preventDefault(); e?.stopPropagation(); root.classList.add('hidden'); updateOverlayState(); };
       const btnClose = root.querySelector('#btnCloseMis');
       btnClose.addEventListener('click', closeMis, {passive:false});
       btnClose.addEventListener('pointerdown', closeMis, {passive:false});
       btnClose.addEventListener('touchend', closeMis, {passive:false});
 
-      addEventListener('keydown', (e)=>{ if (e.key==='Escape'){ root.classList.add('hidden'); updateOverlayState(); } });
+      addEventListener('keydown', (e)=>{ if (e.key==='Escape'){ root.classList.add('hidden'); updateOverlayState(); } }, {passive:true});
     } else {
       root.classList.toggle('hidden');
     }
@@ -389,7 +477,7 @@
     updateOverlayState();
   }
 
-  // ===== CLIMA =====
+  // ===== CLIMA ===== (visual)
   const weather = { state: 'clear', rain: 0, wind: 0, t: 0, nextChange: 120 + Math.random()*120 };
   function setWeather(state){
     weather.state = state;
@@ -416,8 +504,8 @@
   // ---- Auto-guardado ----
   const AUTO_SAVE_EVERY = 15; // seg
   setInterval(saveLS, AUTO_SAVE_EVERY*1000);
-  addEventListener('visibilitychange', ()=>{ if (document.hidden) saveLS(); });
-  addEventListener('beforeunload', saveLS);
+  addEventListener('visibilitychange', ()=>{ if (document.hidden) saveLS(); }, {passive:true});
+  addEventListener('beforeunload', saveLS, {passive:true});
 
   function start(){
     // Auto-load si hay partida
@@ -521,7 +609,7 @@
       }
     }
 
-    // --- Ataques contra vida salvaje / enemigos ---
+    // --- Golpe cuerpo a cuerpo ---
     const reach=18;
     const hitMelee = (ox,oy, radius, arr, onKill)=>{
       for (let i=arr.length-1;i>=0;i--){
@@ -537,11 +625,8 @@
     };
 
     const ox = player.x + player.facing.x*reach, oy = player.y + player.facing.y*reach;
-    // Ciervos
     if (hitMelee(ox,oy, player.r, deers, ()=>{ player.rawMeat++; toast('Carne cruda +1'); updateInvUI(); saveLS(); })) return true;
-    // Peces
     if (hitMelee(ox,oy, player.r, fishs, ()=>{ player.rawFish++; toast('Pescado crudo +1'); updateInvUI(); saveLS(); })) return true;
-    // Enemigos
     if (player.spearEquipped || player.axeEquipped || player.pickEquipped){
       if (hitMelee(ox,oy, player.r, enemies, ()=>{ player.rawMeat++; toast('Botín: carne +1'); updateInvUI(); saveLS(); })) return true;
       if (player.spearEquipped){ if (--player.spearDur<=0){ player.spearOwned=false; player.spearEquipped=false; toast('Tu lanza se rompió'); } }
@@ -569,7 +654,7 @@
         player.wood-=3; player.stone-=1;
         const px=player.x+player.facing.x*10, py=player.y+player.facing.y*10;
         campfires.push({x:px,y:py,r:50,life:120});
-        try{ASSETS.s_craft.currentTime=0; ASSETS.s_craft.play();}catch{};
+        try{ASSETS.s_craft.currentTime=0; ASSETS.s_craft.play();}catch{}
         announce('Fogata creada'); updateMissions(); updateInvUI(); saveLS();
       } else toast('3 madera + 1 piedra');
       setTimeout(()=>{ tick.craftLatch=false; }, 200);
@@ -595,16 +680,16 @@
       if (player.wood<4 || player.stone<2) return toast('Mesa: 4 madera + 2 piedra');
       player.wood-=4; player.stone-=2;
       buildings.push({type:'workbench', x:gx, y:gy, rot:0});
-      try{ASSETS.s_craft.play();}catch{}; updateInvUI(); saveLS(); return; // <- ; después de catch
+      try{ASSETS.s_craft.play();}catch{}; updateInvUI(); saveLS(); return;
     }
     else if (type==='furnace'){
       if (player.stone<8) return toast('Horno: 8 piedra');
       player.stone-=8;
       buildings.push({type:'furnace', x:gx, y:gy, rot:0});
-      try{ASSETS.s_craft.play();}catch{}; updateInvUI(); saveLS(); return; // <- ; después de catch
+      try{ASSETS.s_craft.play();}catch{}; updateInvUI(); saveLS(); return;
     }
     buildings.push({type,x:gx,y:gy,rot:build.rot%4});
-    try{ASSETS.s_craft.currentTime=0; ASSETS.s_craft.play();}catch{};
+    try{ASSETS.s_craft.currentTime=0; ASSETS.s_craft.play();}catch{}
     updateInvUI(); saveLS();
   }
 
@@ -624,7 +709,7 @@
   // mouse/touch action
   let mouseDown=false;
   addEventListener('mousedown', e=>{ mouseDown=true; e.preventDefault(); }, {passive:false});
-  addEventListener('mouseup', e=>{ mouseDown=false; }, {passive:true});
+  addEventListener('mouseup', ()=>{ mouseDown=false; }, {passive:true});
 
   // Enemigos
   function spawnEnemy(){
@@ -635,15 +720,6 @@
   }
 
   let stepTimer=0;
-
-  // offsets para herramientas en mano, por dirección (en píxeles world no escalados)
-  const EQUIP_OFF = {
-    right:{x: 6,  y: 0},
-    left: {x:-12, y: 0},
-    up:   {x: -2, y:-6},
-    down: {x:  2, y: 6}
-  };
-
   function tick(){
     const now=performance.now(); let dt=(now-last)/1000; last=now; if (dt>0.05) dt=0.05;
 
@@ -652,26 +728,30 @@
 
     // Input vector
     let ix=0, iy=0;
+    // teclado
     if (keys.has('w')) { iy-=1; player.dirName='up'; }
     if (keys.has('s')) { iy+=1; player.dirName='down'; }
     if (keys.has('a')) { ix-=1; player.dirName='left'; }
     if (keys.has('d')) { ix+=1; player.dirName='right'; }
-    if (joyState.active){
-      const dx = joyState.x - (document.getElementById('joy').clientWidth)/2;
-      const dy = joyState.y - (document.getElementById('joy').clientHeight)/2;
-      ix = dx/56; iy = dy/56;
-      const mag = Math.hypot(ix,iy);
-      if (mag < 0.18){ ix=0; iy=0; } else { ix/=mag; iy/=mag; }
-      if (Math.abs(ix) > Math.abs(iy)) player.dirName = (ix>0?'right':'left');
-      else if (Math.abs(iy) > 0.05) player.dirName = (iy>0?'down':'up');
+
+    // joystick
+    if (joy && joyState){
+      if (Math.abs(joyState.vx) > 0.001 || Math.abs(joyState.vy) > 0.001){
+        ix = joyState.vx; iy = joyState.vy;
+        // dirección visual
+        if (Math.abs(ix) > Math.abs(iy)) player.dirName = (ix>0?'right':'left');
+        else if (Math.abs(iy) > 0.05) player.dirName = (iy>0?'down':'up');
+      }
     }
+
     const l=Math.hypot(ix,iy)||1; ix/=l; iy/=l;
     if (ix||iy) player.facing={x:ix,y:iy};
 
     const inWater = circleRectCollide(player.x, player.y, player.r, water.x, water.y, water.w, water.h);
+    const autoSprint = joyState.mag > 0.78;
     const baseMod = Math.max(0.6, Math.min(1.1, (player.energy/100)*1.0));
     const waterMult = player.boatEquipped && inWater ? 1.4 : (inWater?0.6:1.0);
-    const speed = player.speed * baseMod * ((keys.has('shift')||runTouch)?player.sprint:1) * waterMult;
+    const speed = player.speed * baseMod * (((keys.has('shift')||runTouch||autoSprint)?player.sprint:1)) * waterMult;
 
     const prevX=player.x, prevY=player.y;
     player.x += ix*speed*dt; player.y += iy*speed*dt;
@@ -848,7 +928,7 @@
     for (let y=0; y<water.h; y+=16){ ctx.drawImage(shoreFrame, (water.x - 8 - cam.x)*SCALE, (water.y + y - cam.y)*SCALE, 16*SCALE, 16*SCALE); ctx.drawImage(shoreFrame, (water.x + water.w - 8 - cam.x)*SCALE, (water.y + y - cam.y)*SCALE, 16*SCALE, 16*SCALE); }
 
     // árboles y pickups
-    for (const t of trees){ const x=Math.floor(t.x - cam.x), y=Math.floor(t.y - cam.y); ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect((x-8)*SCALE, (y+6)*SCALE, 16*SCALE, 4*SCALE); ctx.drawImage(ASSETS.tree, (x-8)*SCALE, (y-24)*SCALE, 16*SCALE, 24*SCALE); }
+    for (const t of trees){ const x=Math.floor(t.x - cam.x), y=Math.floor(t.y - cam.y); ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect((x-8)*SCALE, (y+6)*SCALE, 16*SCALE, 4*SCALE); ctx.drawImage(ASSETS.tree, (x-16)*SCALE, (y-24)*SCALE, ASSETS.tree.width*SCALE, ASSETS.tree.height*SCALE); }
     for (const r of rocks){ const x=Math.floor(r.x - cam.x), y=Math.floor(r.y - cam.y); ctx.drawImage(ASSETS.rock, (x-8)*SCALE, (y-8)*SCALE, 16*SCALE, 16*SCALE); }
     for (const w of woods){ const x=Math.floor(w.x - cam.x), y=Math.floor(w.y - cam.y); ctx.drawImage(ASSETS.wood, (x-8)*SCALE, (y-8)*SCALE, 16*SCALE, 16*SCALE); }
 
@@ -888,27 +968,23 @@
       ctx.fillStyle='#5a3d1e'; ctx.fillRect((x-2)*SCALE, (y-9)*SCALE, 4*SCALE, 3*SCALE);
     }
 
-    // jugador + barco (si corresponde)
+    // jugador
     const px=Math.floor(player.x - cam.x), py=Math.floor(player.y - cam.y);
-
-    if (player.boatEquipped && inWater && ASSETS.eq.boat){
-      const bw = ASSETS.eq.boat.width, bh = ASSETS.eq.boat.height;
-      ctx.drawImage(ASSETS.eq.boat, (px - Math.floor(bw/2))*SCALE, (py - Math.floor(bh/2)+4)*SCALE, bw*SCALE, bh*SCALE);
-    }
-
     ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.fillRect((px-8)*SCALE, (py+6)*SCALE, 16*SCALE, 4*SCALE);
     const frame = ASSETS.player[player.dirName][player.animFrame||0] || ASSETS.player.right[0];
     ctx.drawImage(frame, (px-8)*SCALE, (py-12)*SCALE, 16*SCALE, 16*SCALE);
 
-    // herramienta equipada (overlay)
-    let toolImg = null;
-    if (player.spearEquipped) toolImg = ASSETS.eq.spear;
-    else if (player.bowEquipped) toolImg = ASSETS.eq.bow;
-    else if (player.axeEquipped) toolImg = ASSETS.eq.axe;
-    else if (player.pickEquipped) toolImg = ASSETS.eq.pick;
-    if (toolImg){
-      const off = EQUIP_OFF[player.dirName] || {x:0,y:0};
-      ctx.drawImage(toolImg, (px + off.x)*SCALE, (py + off.y)*SCALE, toolImg.width*SCALE, toolImg.height*SCALE);
+    // overlays de equipo: mano/arma
+    const ox = player.dirName==='right'? 4 : player.dirName==='left'? -4 : 0;
+    const oy = player.dirName==='down'? 2 : player.dirName==='up'? -2 : 0;
+    if (player.spearEquipped && ASSETS.eq_spear) ctx.drawImage(ASSETS.eq_spear, (px-8+ox)*SCALE, (py-12+oy)*SCALE, 16*SCALE, 16*SCALE);
+    if (player.bowEquipped   && ASSETS.eq_bow)   ctx.drawImage(ASSETS.eq_bow,   (px-8+ox)*SCALE, (py-12+oy)*SCALE, 16*SCALE, 16*SCALE);
+    if (player.axeEquipped   && ASSETS.eq_axe)   ctx.drawImage(ASSETS.eq_axe,   (px-8+ox)*SCALE, (py-12+oy)*SCALE, 16*SCALE, 16*SCALE);
+    if (player.pickEquipped  && ASSETS.eq_pick)  ctx.drawImage(ASSETS.eq_pick,  (px-8+ox)*SCALE, (py-12+oy)*SCALE, 16*SCALE, 16*SCALE);
+
+    // barco (decorativo cuando equipado y en agua)
+    if (player.boatEquipped && inWater && ASSETS.boat){
+      ctx.drawImage(ASSETS.boat, (px-10)*SCALE, (py-6)*SCALE, 20*SCALE, 12*SCALE);
     }
 
     // flechas
@@ -1042,7 +1118,7 @@
     mctx.fillStyle='#2c8a2e'; for (let i=0;i<trees.length;i+=3){ const t=trees[i]; const x=t.x/WORLD.w*mw, y=t.y/WORLD.h*mh; mctx.fillRect(x-1,y-1,2,2); }
     mctx.fillStyle='#ffa726'; for (const f of campfires){ const x=f.x/WORLD.w*mw, y=f.y/WORLD.h*mh; mctx.fillRect(x-1,y-1,2,2); }
     mctx.fillStyle='#e0e0e0'; mctx.fillRect(player.x/WORLD.w*mw-2, player.y/WORLD.h*mh-2, 4,4);
-    mctx.strokeStyle='#9eb1ff'; mctx.lineWidth=1;
+    mctx.strokeStyle='#9eb1ff'; mctx.lineWidth=1; 
     mctx.strokeRect(cam.x/WORLD.w*mw, cam.y/WORLD.h*mh, W/WORLD.w*mw, H/WORLD.h*mh);
   }
 
@@ -1081,6 +1157,6 @@
   }
 
   // Atajos desktop (manuales)
-  addEventListener('keydown', (e)=>{ const k=e.key.toLowerCase(); if (k==='s') { saveLS(); toast('Guardado.'); } if (k==='l') { if(loadLS()) toast('Cargado.'); else toast('No hay guardado.'); } });
+  addEventListener('keydown', (e)=>{ const k=e.key.toLowerCase(); if (k==='s') { saveLS(); toast('Guardado.'); } if (k==='l') { if(loadLS()) toast('Cargado.'); else toast('No hay guardado.'); } }, {passive:true});
 
 })();
